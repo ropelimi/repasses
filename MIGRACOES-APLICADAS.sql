@@ -322,3 +322,170 @@ grant execute on function public.admin_excluir_usuario(text)                  to
 -- select tgname from pg_trigger
 -- where tgrelid='public.repasses'::regclass and not tgisinternal order by tgname;
 -- Esperado: trg_bloqueia_pagamento, trg_marca_autor, trg_registra_log
+
+
+-- =====================================================================
+-- =====================================================================
+-- MIGRAÇÕES APLICADAS EM 10/08/2026
+-- Terceiro status: AG. PAGAMENTO
+--
+-- ⚠️ JÁ APLICADO no banco de produção. Idempotente, mas confira antes.
+--
+-- Ordem: 5) coluna ag_pagamento  6) trava de pagamento (atualizada)
+--        7) normalização do status  8) view do atendimento (atualizada)
+--        9) histórico (atualizado)
+-- =====================================================================
+
+
+-- =====================================================================
+-- 5) COLUNA ag_pagamento — aditiva, não recria nada
+--    Status = derivado de duas colunas booleanas:
+--      pago = true                        -> PAGO
+--      pago = false e ag_pagamento = true -> AG. PAGAMENTO
+--      as duas false                      -> PENDENTE
+-- =====================================================================
+alter table public.repasses
+  add column if not exists ag_pagamento boolean not null default false;
+
+comment on column public.repasses.ag_pagamento is
+  'true = lancamento separado, aguardando o pagamento programado. Sempre false quando pago = true.';
+
+
+-- =====================================================================
+-- 6) TRAVA DE PAGAMENTO — agora também protege ag_pagamento
+--    Substitui a versão de 23/07/2026 (item 1 deste arquivo).
+-- =====================================================================
+create or replace function public.bloqueia_pagamento_nao_gestao()
+returns trigger language plpgsql security definer set search_path to 'public','pg_temp'
+as $function$
+declare
+  v_uid uuid := auth.uid();
+begin
+  -- Sem usuario logado (operacoes administrativas / service_role): nao interfere.
+  if v_uid is null then return new; end if;
+
+  -- Gestao pode tudo.
+  if public.meu_perfil() = 'gestao' then return new; end if;
+
+  -- Daqui pra baixo: usuario logado que NAO e gestao (ex.: atendimento).
+  if tg_op = 'INSERT' then
+    if coalesce(new.pago, false) = true
+       or coalesce(new.ag_pagamento, false) = true
+       or nullif(btrim(coalesce(new.data_pagamento, '')), '') is not null
+       or nullif(btrim(coalesce(new.valor_pago, '')), '') is not null then
+      raise exception 'Somente a gestao pode registrar pagamento.' using errcode = '42501';
+    end if;
+
+  elsif tg_op = 'UPDATE' then
+    if (new.pago is distinct from old.pago)
+       or (coalesce(new.ag_pagamento,false) is distinct from coalesce(old.ag_pagamento,false))
+       or (coalesce(nullif(btrim(coalesce(new.data_pagamento,'')),''),'')
+           is distinct from coalesce(nullif(btrim(coalesce(old.data_pagamento,'')),''),''))
+       or (coalesce(nullif(btrim(coalesce(new.valor_pago,'')),''),'')
+           is distinct from coalesce(nullif(btrim(coalesce(old.valor_pago,'')),''),'')) then
+      raise exception 'Somente a gestao pode alterar o status de pagamento.' using errcode = '42501';
+    end if;
+  end if;
+
+  return new;
+end;
+$function$;
+
+
+-- =====================================================================
+-- 7) NORMALIZAÇÃO — um lançamento pago não continua "aguardando pagamento"
+--    Roda DEPOIS da trava (ordem alfabética dos triggers:
+--    trg_bloqueia_pagamento -> trg_marca_autor -> trg_normaliza_status).
+-- =====================================================================
+create or replace function public.normaliza_status_repasse()
+returns trigger language plpgsql set search_path to 'public','pg_temp'
+as $function$
+begin
+  if new.ag_pagamento is null then new.ag_pagamento := false; end if;
+  if coalesce(new.pago,false) then new.ag_pagamento := false; end if;
+  return new;
+end;
+$function$;
+
+drop trigger if exists trg_normaliza_status on public.repasses;
+create trigger trg_normaliza_status
+before insert or update on public.repasses
+for each row execute function public.normaliza_status_repasse();
+
+
+-- =====================================================================
+-- 8) VIEW DO ATENDIMENTO — ganha ag_pagamento, continua SEM valores
+--    A coluna nova entra no FIM (create or replace view só permite acrescentar).
+-- =====================================================================
+create or replace view public.repasses_atendimento
+with (security_invoker = off) as
+select id, nome, nome_norm, cpf, processo, reu, grupo, advogado, tipo, conta,
+       competencia, ano, mes, busca, cp, pago, data_pagamento, obs,
+       pix_chave, pix_banco, pix_agencia, pix_conta, atualizado_por, atualizado_em, criado_em,
+       ag_pagamento
+from public.repasses;
+
+
+-- =====================================================================
+-- 9) HISTÓRICO — passa a registrar mudanças de ag_pagamento
+--    Único ponto alterado: 'ag_pagamento' entrou no array 'campos'.
+-- =====================================================================
+create or replace function public.registra_log()
+returns trigger language plpgsql security definer set search_path to 'public'
+as $function$
+declare
+  quem_e  text := coalesce(public.meu_email(), 'sistema');
+  nome_e  text := coalesce(public.meu_nome(),  'sistema');
+  campos  text[] := array['nome','cpf','processo','reu','grupo','advogado','tipo','conta',
+                          'competencia','ano','mes','valor_num','cp','pago','ag_pagamento',
+                          'data_pagamento','valor_pago','obs','pix_chave','pix_banco',
+                          'pix_agencia','pix_conta'];
+  c       text;
+  v_old   text;
+  v_new   text;
+  j_old   jsonb;
+  j_new   jsonb;
+begin
+  if (TG_OP = 'INSERT') then
+    insert into public.repasses_log (repasse_id, cliente, processo, acao, quem_email, quem_nome)
+    values (new.id, new.nome, new.processo, 'criou', quem_e, nome_e);
+    return new;
+
+  elsif (TG_OP = 'DELETE') then
+    insert into public.repasses_log (repasse_id, cliente, processo, acao, quem_email, quem_nome)
+    values (old.id, old.nome, old.processo, 'excluiu', quem_e, nome_e);
+    return old;
+
+  else
+    j_old := to_jsonb(old);
+    j_new := to_jsonb(new);
+    foreach c in array campos loop
+      v_old := j_old ->> c;
+      v_new := j_new ->> c;
+      if (v_old is distinct from v_new) then
+        insert into public.repasses_log
+          (repasse_id, cliente, processo, acao, campo, valor_antigo, valor_novo, quem_email, quem_nome)
+        values (new.id, new.nome, new.processo, 'alterou', c,
+                coalesce(v_old,''), coalesce(v_new,''), quem_e, nome_e);
+      end if;
+    end loop;
+    return new;
+  end if;
+end $function$;
+
+
+-- =====================================================================
+-- CONFERÊNCIA RÁPIDA da migração de 10/08/2026 (só lê, é seguro)
+-- =====================================================================
+-- select column_name from information_schema.columns
+-- where table_schema='public' and table_name='repasses' and column_name='ag_pagamento';
+-- Esperado: 1 linha.
+--
+-- select tgname from pg_trigger
+-- where tgrelid='public.repasses'::regclass and not tgisinternal order by tgname;
+-- Esperado: trg_bloqueia_pagamento, trg_marca_autor, trg_normaliza_status, trg_registra_log
+--
+-- select count(*) from information_schema.columns
+-- where table_schema='public' and table_name='repasses_atendimento'
+--   and column_name in ('valor_num','valor_pago');
+-- Esperado: 0 (o atendimento continua sem ver dinheiro).

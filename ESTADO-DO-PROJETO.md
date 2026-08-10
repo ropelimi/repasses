@@ -1,5 +1,5 @@
 # Sistema de Controle de Repasses — Canaverde & Aguiar Advogados
-**Documento de estado do projeto.** Atualizado em 23/07/2026.
+**Documento de estado do projeto.** Atualizado em 10/08/2026.
 **Leia este arquivo inteiro antes de responder qualquer pedido sobre este sistema.**
 
 ---
@@ -28,20 +28,33 @@ Os dois leem/gravam a mesma base: o que um faz, o outro vê (atualização autom
 
 ## 2. Endereços e acessos
 
-- **Repositório:** https://github.com/danilo-ferro/sistema-repasses-canaverde (branch `main`) — **público**
+- **Repositório:** https://github.com/ropelimi/repasses (branch `main`)
+  *(o endereço antigo `danilo-ferro/sistema-repasses-canaverde` estava neste documento até 23/07/2026 e não é mais o repositório usado.)*
 - **Supabase project_id:** `maytgfyzvoufepaerwwn`
 - **SUPABASE_URL:** `https://maytgfyzvoufepaerwwn.supabase.co`
 - **Chave publicável:** `sb_publishable_U4pGdy1Bom36dZ2bo6nb3g_VMAAYELY` (pública por design; já está dentro dos HTML). A chave **secret/service_role NUNCA** vai para o site nem para o repositório.
 - **Vercel:** conectado ao GitHub → commit no repo republica sozinho (~30s), URL fixa.
 
-**Estado da publicação em 23/07/2026:** GitHub, Vercel e os arquivos locais estão **100% em sincronia**. O conteúdo publicado é exatamente o descrito neste documento.
+**Estado da publicação em 10/08/2026:** GitHub, Vercel e os arquivos locais estão **100% em sincronia**. O conteúdo publicado é exatamente o descrito neste documento.
+
+**Arquivos do repositório:** `index.html`, `atendimento.html`, `favicon.png`, `transform.py`, `ESTADO-DO-PROJETO.md`, `MIGRACOES-APLICADAS.sql`.
 
 ---
 
 ## 3. Banco de dados (Supabase)
 
-### Tabela `repasses` — **261 lançamentos** (~R$ 615.016,64 | 15 pagos, 246 pendentes)
-`id` (bigint identity), `nome`, `nome_norm` (sem acento, maiúsculo), `cpf`, `processo`, `reu`, `grupo`, `advogado`, `tipo`, `conta`, `competencia` ("Mmm/AAAA"), `ano`, `mes`, `valor_num` (numeric), `busca`, `cp` (bool), `pago` (bool), `data_pagamento` (text ISO), `valor_pago` (text BR), `obs`, `pix_chave`, `pix_banco`, `pix_agencia`, `pix_conta`, `atualizado_por`, `atualizado_em`, `criado_em`.
+### Tabela `repasses` — **267 lançamentos** (~R$ 639.161,35 | 15 pagos, 0 ag. pagamento, 252 pendentes em 10/08/2026)
+`id` (bigint identity), `nome`, `nome_norm` (sem acento, maiúsculo), `cpf`, `processo`, `reu`, `grupo`, `advogado`, `tipo`, `conta`, `competencia` ("Mmm/AAAA"), `ano`, `mes`, `valor_num` (numeric), `busca`, `cp` (bool), `pago` (bool), **`ag_pagamento` (bool, NOVO em 10/08/2026)**, `data_pagamento` (text ISO), `valor_pago` (text BR), `obs`, `pix_chave`, `pix_banco`, `pix_agencia`, `pix_conta`, `atualizado_por`, `atualizado_em`, `criado_em`.
+
+**Os três status saem de duas colunas booleanas** (não existe coluna "status"):
+
+| `pago` | `ag_pagamento` | Status na tela |
+|---|---|---|
+| `false` | `false` | **PENDENTE** |
+| `false` | `true`  | **AG. PAGAMENTO** — separado, com repasse já programado |
+| `true`  | `false` | **PAGO** |
+
+`pago` manda: o trigger `trg_normaliza_status` zera `ag_pagamento` sempre que `pago` vira `true`, então a quarta combinação nunca existe no banco.
 
 Grupos: Max, Mariah, Jezieli, Yunes, Kaled, Nardon, JLM, Máximo Êxito.
 
@@ -54,15 +67,21 @@ Grupos: Max, Mariah, Jezieli, Yunes, Kaled, Nardon, JLM, Máximo Êxito.
 
 ### Segurança de valores (atendimento não vê dinheiro)
 - **RLS na `repasses`:** policy `repasses_gestao` — só perfil `gestao` acessa a tabela (que tem valores).
-- **View `repasses_atendimento`** (`security_invoker = off`) — **não expõe `valor_num` nem `valor_pago`**. É por ela que o atendimento lê e grava.
+- **View `repasses_atendimento`** (`security_invoker = off`) — **não expõe `valor_num` nem `valor_pago`**. É por ela que o atendimento lê e grava. Desde 10/08/2026 inclui `ag_pagamento` (é status, não valor — o atendimento **vê**, mas **não altera**).
 - **Função `recibo_dados(bigint[])`** (security definer) — entrega o valor só dos lançamentos escolhidos, para o atendimento gerar recibo. **Está concedida (`granted`).**
   Para bloquear: `revoke execute on function public.recibo_dados(bigint[]) from authenticated;`
 
-### Segurança de pagamento (NOVO em 23/07/2026)
+### Segurança de pagamento (23/07/2026, ampliada em 10/08/2026)
 - **Trigger `trg_bloqueia_pagamento`** (BEFORE INSERT OR UPDATE em `repasses`) → função `bloqueia_pagamento_nao_gestao()`.
-- Impede que **qualquer usuário logado que não seja `gestao`** altere `pago`, `data_pagamento` ou `valor_pago` — pela tela, pela view ou por chamada direta à API.
+- Impede que **qualquer usuário logado que não seja `gestao`** altere `pago`, **`ag_pagamento`**, `data_pagamento` ou `valor_pago` — pela tela, pela view ou por chamada direta à API.
 - `auth.uid()` nulo (service_role / migrações) **passa livre**, de propósito.
 - A restrição na tela é apenas cosmética; **a trava real é esta**.
+
+### Coerência do status (NOVO em 10/08/2026)
+- **Trigger `trg_normaliza_status`** (BEFORE INSERT OR UPDATE) → função `normaliza_status_repasse()`.
+- Se `pago = true`, força `ag_pagamento = false`. Um lançamento pago não fica "aguardando pagamento".
+- Roda **depois** da trava (ordem alfabética: `trg_bloqueia_pagamento` → `trg_marca_autor` → `trg_normaliza_status`), então a trava sempre enxerga o que o usuário realmente tentou gravar.
+- **Testado com `rollback`** antes de aplicar: 8 cenários (gestão marca/desmarca, atendimento barrado direto e pela view, observação do atendimento continua liberada, normalização do `pago`, view com o novo campo e sem valores).
 
 ### Gerenciamento de usuários (NOVO em 23/07/2026) — todas SECURITY DEFINER, só `gestao`
 | Função | Argumentos | O que faz |
@@ -104,10 +123,17 @@ Grupos: Max, Mariah, Jezieli, Yunes, Kaled, Nardon, JLM, Máximo Êxito.
 
 ## 4. Funcionalidades prontas
 
-1. **Lista de lançamentos** — busca (ignora acentos), filtros por status/ano/mês/grupo, "Só C.P.", ordenação, visão *Por lançamento* e *Por cliente* (consolidada).
+1. **Lista de lançamentos** — busca (ignora acentos), filtros por status (Todos / Pendentes / **Ag. pagamento** / Pagos), ano, mês e grupo, "Só C.P.", ordenação, visão *Por lançamento* e *Por cliente* (consolidada).
 2. **Tempo pendente** (só gestão) — calculado pela **competência**: ≤3m verde, 4–6 amarelo, 7–12 laranja, >12 vermelho.
-3. **Baixa de pagamento** (**só gestão**) — data, valor pago, observação.
-4. **Status PAGO/PENDENTE** — botão clicável na gestão; **texto fixo (somente leitura) no atendimento**.
+3. **Baixa de pagamento** (**só gestão**) — data, valor pago, observação. Ao salvar, marca PAGO e limpa o "ag. pagamento".
+4. **Três status: PENDENTE → AG. PAGAMENTO → PAGO** (atualizado em 10/08/2026)
+   - Na gestão o status é um **botão que gira em ciclo** a cada clique, nessa ordem, e do PAGO volta para PENDENTE.
+   - No atendimento é **texto fixo (somente leitura)** — e a trava real está no banco, não só na tela.
+   - **AG. PAGAMENTO** = caso separado, com o repasse ao cliente já programado. Fundo azul-claro na linha, etiqueta azul.
+   - **PAGO** = a linha inteira sai com o **texto riscado** (cliente, CPF, processo, réu, competência, valor). Botões, etiquetas de grupo e o "tempo pendente" **não** são riscados, para continuarem legíveis. Funciona no computador, no celular e nos modos claro e escuro.
+   - Cartões do topo: para a gestão, **"A repassar (não pago)"** soma tudo que ainda não foi repassado (pendente **+** ag. pagamento) e **"Ag. pagamento"** mostra quanto já está programado. No atendimento os dois cartões mostram quantidade, não valor.
+   - **Cuidado com o filtro:** "Pendentes" mostra só o que **ainda não foi separado**; o que está programado aparece em "Ag. pagamento". O cartão de valor, ao contrário, soma os dois — é o total que o escritório ainda deve repassar.
+   - O **Financeiro** continua contando **só o que está PAGO** — separar para pagamento não entra no financeiro.
 5. **Financeiro** (só gestão) — filtro por período pela **data de pagamento** (+ atalhos Este mês / Mês passado / Este ano / Todo o período), total pago, quantidade, clientes, valor médio, total por grupo, tabela e CSV com linha de total. Avisa quando há pago sem data.
 6. **Painel de Usuários** (só gestão) — botão **"Usuários"** no topo. Lista todos (nome, e-mail, perfil colorido) e permite **criar**, **editar** (nome, perfil, senha opcional) e **excluir**. No atendimento o botão fica escondido.
 7. **Modo claro/escuro** — botão no topo, salvo em localStorage por pessoa.
@@ -134,34 +160,46 @@ Grupos: Max, Mariah, Jezieli, Yunes, Kaled, Nardon, JLM, Máximo Êxito.
 ## 6. Identidade visual
 
 - **Emblema:** símbolo da Canaverde (círculo verde), no topo e no login. O antigo "MLE" foi removido.
+- **Favicon (NOVO em 10/08/2026):** o ícone da aba do navegador é o **mesmo emblema do login**, no arquivo **`favicon.png`** (96×96, 8 KB) na raiz do repositório, referenciado por `<link rel="icon" type="image/png" href="/favicon.png">` no `<head>`.
+  - É **arquivo separado, não base64** — de propósito: não engorda os HTML e é o primeiro passo da pendência 1 do §8.
+  - O `favicon.png` foi gerado a partir do próprio base64 do emblema que já estava dentro do `index.html`, então é exatamente a mesma imagem.
+  - Se um dia o arquivo sumir do repositório, o navegador volta a mostrar o ícone genérico (aquele globo) — nada quebra, só o ícone.
 - **Subtítulos:** "Gestão - Canaverde & Aguiar Advogados" / "Atendimento - Canaverde & Aguiar Advogados".
-- Cores: `--azul:#1a3a5c`, `--azul2:#2d6a9f`, `--azul-cl:#eaf2fa`. Tema escuro via `[data-theme="dark"]` sobre variáveis CSS.
+- Cores: `--azul:#1a3a5c`, `--azul2:#2d6a9f`, `--azul-cl:#eaf2fa`. AG. PAGAMENTO usa `--agp-bg` / `--agp-borda`. Tema escuro via `[data-theme="dark"]` sobre variáveis CSS.
 
 ---
 
-## 7. Estrutura técnica dos HTML (~194 KB cada, 1205 linhas)
+## 7. Estrutura técnica dos HTML (~198 KB cada, 1240 linhas)
 
 Arquivo único: `<style>` (variáveis CSS + tema escuro) → HTML (header, stats, filtros, wrap, modais: editar, histórico, recibo, **usuários**, login) → `<script>`.
 
 Blocos do JS, na ordem:
-config Supabase (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `_normUrl()`) → `MODE`/`isGestao`/`TABLE` → utilitários (`norm`, `parseComp`, `mesesPend`, `tempoCls`, `esc`, `brl`, `parseBR`, `fmtBR`) → `loadData` → filtros → render (`renderStats`, `renderFlat`, `rowHTML`, `expHTML`, `renderCards`, `clRow`) → ações (`persist`, `toggleCp`, `togglePago`, `savePag`, `saveObs`, `delRec`) → modal (`openModal`, `saveModal`) → export (`doExportJSON`, `doExportCSV`) → `LOGO_B64`/`RODAPE_B64` → tema → extenso → auditoria (`openLog`) → financeiro (`renderFin`, `finPreset`, `exportFinCSV`) → recibo (`openRec`, `openRecCliente`, `buildRec`, `gerarRecibo`, `abrirRecibo`) → **usuários (`openSenhas`, `closeSenhas`, `renderUsuarios`, `formNovo`, `formEditar`, `mostrarForm`, `salvarUsuario`, `excluirUsuario`)** → login/init (`boot`, `doLogin`, `onLogged`, `canRefresh`, `doLogout`).
+config Supabase (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `_normUrl()`) → `MODE`/`isGestao`/`TABLE` → utilitários (`norm`, `parseComp`, `mesesPend`, `tempoCls`, `esc`, `brl`, `parseBR`, `fmtBR`) → **status (`ehAg`, `stCls`, `stLabel`, `stNext`, `stBtn`)** → `loadData` → filtros → render (`renderStats`, `renderFlat`, `rowHTML`, `expHTML`, `renderCards`, `clRow`) → ações (`persist`, `toggleCp`, `togglePago`, `savePag`, `saveObs`, `delRec`) → modal (`openModal`, `saveModal`) → export (`doExportJSON`, `doExportCSV`) → `LOGO_B64`/`RODAPE_B64` → tema → extenso → auditoria (`openLog`) → financeiro (`renderFin`, `finPreset`, `exportFinCSV`) → recibo (`openRec`, `openRecCliente`, `buildRec`, `gerarRecibo`, `abrirRecibo`) → **usuários (`openSenhas`, `closeSenhas`, `renderUsuarios`, `formNovo`, `formEditar`, `mostrarForm`, `salvarUsuario`, `excluirUsuario`)** → login/init (`boot`, `doLogin`, `onLogged`, `canRefresh`, `doLogout`).
 
 **Pontos-chave de perfil no código:**
 - `const MODE` / `const isGestao` (linha ~372) — origem de tudo.
-- `rowHTML()` e `clRow()` — status vira `<span>` quando não é gestão.
-- `togglePago()` — trava por perfil logo na primeira linha.
+- `stBtn()` — **único lugar** que monta o status: `<button>` para a gestão, `<span>` para o atendimento. `rowHTML()` e `clRow()` só chamam essa função.
+- `togglePago()` — trava por perfil logo na primeira linha; usa `stNext()` para girar o ciclo.
 - Bloco final `if(!isGestao){...}` — esconde `btnFin` e `btnSenhas`.
+
+**Pontos-chave do status de três estados (10/08/2026):**
+- Mexer no ciclo, nos rótulos ou nas cores = mexer **só** em `ehAg` / `stCls` / `stLabel` / `stNext` / `stBtn`. Tudo o mais (tabela, cartões, CSV, recibo) consome essas funções.
+- Onde o status ainda aparece "cru": `applyFilters()` (filtro), `renderStats()` (cartões do topo), `renderCards()` (etiquetas do cliente), `savePag()` e `saveModal()` (gravação).
+- CSS: `.stbtn.agp`, `.bdg.agp`, `.sc.agp`, `tbody tr.agp`, `.cl-row.agp` e o bloco do riscado (`tbody tr.pago .cli, .cpf, .proc, .reu, .comp, .val, .obs-s`).
 
 **Os dois arquivos são gêmeos** — mudam só `<title>`, o subtítulo (2×) e `const MODE`.
 **Basta trabalhar no `index.html`: o `atendimento.html` sai do `transform.py`.**
 
 **Como validar antes de entregar:** extrair o último `<script>` e rodar `node --check`; opcionalmente um harness em Node com DOM/Supabase simulados (precisa stub de `confirm`, `alert`, `localStorage`, `window.matchMedia`, `window.open`, e `sb.from()` encadeável + `sb.rpc`).
 
+**Validação melhor (usada em 10/08/2026):** subir a pasta num servidor local (`npx http-server -p 8099`) e abrir no Chromium com Playwright; esconder o `loginOv`, atribuir `RECORDS` direto (é `let` no topo do script, então dá para escrever nele pelo `page.evaluate`), chamar `buildFilterOptions()` e `render()`, e conferir por `getComputedStyle`. Assim se testa a tela de verdade — riscado, cores, celular, modo escuro — sem precisar de banco. O erro `ERR_TUNNEL_CONNECTION_FAILED` que aparece no console é só o CDN do `supabase-js` bloqueado no ambiente de teste; no site publicado ele carrega normalmente.
+
 ---
 
 ## 8. Pendências e próximos passos
 
-1. **[PRIORIDADE] Emagrecer os arquivos** — ~107 KB dos 194 KB são as imagens (logo, rodapé, emblema) em base64 dentro do HTML. Tirar para arquivos separados (`logo.png`, `rodape.png`, `emblema.png`) referenciados por **URL absoluta** (`new URL('logo.png', location.href).href` — atenção: o recibo abre em `about:blank`, então **URL relativa não funciona**). Resultado: HTML cai para ~87 KB e o app abre mais rápido. Exige subir as 3 imagens no repo uma vez.
+1. **[PRIORIDADE] Emagrecer os arquivos** — ~107 KB dos 198 KB ainda são as imagens (logo, rodapé, emblema) em base64 dentro do HTML. Tirar para arquivos separados (`logo.png`, `rodape.png`, `emblema.png`) referenciados por **URL absoluta** (`new URL('logo.png', location.href).href` — atenção: o recibo abre em `about:blank`, então **URL relativa não funciona**). Resultado: HTML cai para ~90 KB e o app abre mais rápido.
+   - **Primeiro passo já feito em 10/08/2026:** o `favicon.png` foi criado como arquivo separado (a partir do base64 do emblema), provando que serve arquivo estático na Vercel sem problema. Falta trocar os `<img>` do emblema e as duas imagens do recibo.
 2. Corrigir (ou não) os erros de digitação do modelo do recibo ("PRESTAÇAO", "conta bancaria a baixo").
 3. Decidir se o atendimento continua vendo valor no recibo (hoje vê; `recibo_dados` está concedida).
 4. Backup automático: só no Supabase Pro (US$ 25/mês). Hoje o backup é manual pelo botão. Considerar rotina de backup agendada.
@@ -213,6 +251,11 @@ rollback;
 - **Criar usuário exige as duas tabelas:** `auth.users` **e** `auth.identities` (com `email_confirmed_at = now()`), senão o login do GoTrue não funciona.
 - **Conector Supabase (MCP):** SQL com vários comandos só devolve o **último** resultado; `raise notice` dentro de `DO` **não aparece** — gravar numa temp table e dar `select`.
 - **Contagem de bytes × caracteres:** o arquivo tem acentos (UTF-8), então `len()` em Python (caracteres) é menor que `wc -c` (bytes). Não é sinal de divergência.
+- **Riscado (`text-decoration`) não se apaga por dentro.** Riscar o `<td>` inteiro e depois pôr `text-decoration:none` nos botões **não funciona** — em CSS o riscado desce para os filhos e o filho não consegue desfazer. Por isso o riscado é aplicado **direto nos textos** (`.cli`, `.cpf`, `.proc`, `.reu`, `.comp`, `.val`, `.obs-s`), e não no `<td>`.
+- **E riscar o `<td>` também quebra no celular:** no modo estreito o `td` vira `display:flex`, e riscado **não desce** para filhos de um flex container. Ou seja: riscar o `td` sumiria justamente no celular. Mais um motivo para riscar os textos diretamente.
+- **Foi preciso criar `<span class="comp">` e `<span class="obs-s">`** porque competência e observação eram texto solto dentro do `<td>` — texto solto não tem como receber estilo próprio.
+- **`create or replace view` só acrescenta coluna no fim** e **apaga as opções da view se não forem repetidas** — por isso a `repasses_atendimento` é recriada sempre com `with (security_invoker = off)` explícito. As permissões (`grant`) sobrevivem, essas não precisam ser refeitas.
+- **Ordem dos triggers é alfabética pelo nome.** `trg_normaliza_status` roda depois de `trg_bloqueia_pagamento` de propósito: primeiro barra quem não pode, depois arruma o dado.
 
 ---
 
