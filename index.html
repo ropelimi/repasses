@@ -4,11 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Controle de Repasses — Gestão · Canaverde &amp; Aguiar Advogados</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="apple-touch-icon" href="/favicon.png">
 <style>
 :root{
   --surface:#ffffff;--surface2:#f7f9fb;--thead-bg:#f4f6f9;
   --txt:#2a2f36;--txt2:#555c64;--txt3:#7a828b;
-  --hover:#fafbfc;--hover2:#eef0f3;--pago-hover:#e9fbef;
+  --hover:#fafbfc;--hover2:#eef0f3;--pago-hover:#e9fbef;--agp-hover:#e6f0fb;
   --azul:#1a3a5c;--azul2:#2d6a9f;--azul-cl:#eaf2fa;
   --verde:#1f8a4c;--verde-bg:#e6f6ec;
   --laranja:#b5580a;--laranja-bg:#fdf0e3;
@@ -18,7 +20,7 @@
   --vermelho:#c0392b;--vermelho-bg:#fdecea;
   --amarelo:#9a7400;--amarelo-bg:#fff6df;
   --cinza:#f0f2f5;--borda:#e2e6ea;--cinza2:#f8f9fb;
-  --pago-bg:#f0fdf4;
+  --pago-bg:#f0fdf4;--agp-bg:#f3f8fd;--agp-borda:#cfe0f2;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',Arial,sans-serif;background:var(--cinza);color:var(--txt);min-height:100vh;font-size:14px}
@@ -43,6 +45,7 @@ header{background:linear-gradient(135deg,#16314e,#2d6a9f);color:#fff;padding:14p
 .sc .sv{font-size:20px;font-weight:800;line-height:1.1;color:var(--azul)}
 .sc .sl{font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;margin-top:3px;font-weight:600}
 .sc.money .sv{color:var(--vermelho)}
+.sc.agp .sv{color:var(--azul2)}
 .sc.ok .sv{color:var(--verde)}
 .sc.cp .sv{color:var(--vermelho)}
 
@@ -82,6 +85,12 @@ tbody td{padding:10px;border-bottom:1px solid var(--borda);vertical-align:middle
 tbody tr:hover{background:var(--hover)}
 tbody tr.pago{background:var(--pago-bg)}
 tbody tr.pago:hover{background:var(--pago-hover)}
+tbody tr.agp{background:var(--agp-bg)}
+tbody tr.agp:hover{background:var(--agp-hover)}
+/* Lançamento PAGO sai riscado (só o texto; botões e etiquetas continuam legíveis). */
+tbody tr.pago .cli,tbody tr.pago .cpf,tbody tr.pago .proc,tbody tr.pago .reu,
+tbody tr.pago .comp,tbody tr.pago .val,tbody tr.pago .obs-s{text-decoration:line-through;text-decoration-thickness:1px}
+tbody tr.pago .cli,tbody tr.pago .val{color:var(--txt2)}
 .cli{font-weight:600;color:var(--txt)}
 .cli .obsdot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--amarelo);margin-left:6px;vertical-align:middle}
 .cpf{font-size:12px;color:var(--txt3)}
@@ -106,9 +115,10 @@ tbody tr.pago:hover{background:var(--pago-hover)}
 .ag.laranja{background:var(--laranja-bg);color:var(--laranja)}
 .ag.vermelho{background:var(--vermelho-bg);color:var(--vermelho)}
 .cpbox{width:18px;height:18px;cursor:pointer;accent-color:var(--vermelho)}
-.stbtn{border:1px solid var(--borda);border-radius:20px;padding:4px 11px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap}
+.stbtn{display:inline-block;border:1px solid var(--borda);border-radius:20px;padding:4px 11px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;text-decoration:none}
 .stbtn.pend{background:var(--vermelho-bg);color:var(--vermelho);border-color:#f3c9c4}
 .stbtn.pago{background:var(--verde-bg);color:var(--verde);border-color:#bfe6cd}
+.stbtn.agp{background:var(--azul-cl);color:var(--azul);border-color:var(--agp-borda)}
 .acts{display:flex;gap:4px;justify-content:flex-end}
 .ico{border:none;background:transparent;cursor:pointer;color:var(--txt3);padding:5px;border-radius:6px}
 .ico:hover{background:var(--hover2);color:var(--azul2)}
@@ -138,11 +148,16 @@ tbody tr.pago:hover{background:var(--pago-hover)}
 .bdg.proc{background:var(--azul-cl);color:var(--azul)}
 .bdg.pend{background:var(--vermelho-bg);color:var(--vermelho)}
 .bdg.pago{background:var(--verde-bg);color:var(--verde)}
+.bdg.agp{background:var(--azul-cl);color:var(--azul)}
 .bdg.cp{background:var(--vermelho);color:#fff}
 .card-list{border-top:1px solid var(--borda);background:var(--cinza2);display:none}
 .card.open .card-list{display:block}
 .cl-row{padding:10px 15px;border-bottom:1px solid var(--borda);display:flex;flex-direction:column;gap:4px}
 .cl-row:last-child{border-bottom:none}
+.cl-row.pago{background:var(--pago-bg)}
+.cl-row.agp{background:var(--agp-bg)}
+.cl-row.pago .proc,.cl-row.pago .reu,.cl-row.pago .val,.cl-row.pago .comp{text-decoration:line-through;text-decoration-thickness:1px}
+.cl-row.pago .val{color:var(--txt2)}
 .cl-top{display:flex;justify-content:space-between;gap:8px;align-items:center}
 .cl-meta{font-size:11px;color:var(--txt3);display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 
@@ -200,10 +215,10 @@ tbody tr.pago:hover{background:var(--pago-hover)}
 [data-theme="dark"]{
   --surface:#141c27;--surface2:#0e151e;--thead-bg:#1a2431;
   --txt:#e6ebf1;--txt2:#b6c0cb;--txt3:#8a95a2;
-  --hover:#1a2431;--hover2:#232f3d;--pago-hover:#15301f;
+  --hover:#1a2431;--hover2:#232f3d;--pago-hover:#15301f;--agp-hover:#1a3049;
   --azul:#8fbde8;--azul2:#4a90d9;
   --cinza:#0b111a;--borda:#2a3644;--cinza2:#161f2b;
-  --pago-bg:#12261a;
+  --pago-bg:#12261a;--agp-bg:#15293e;--agp-borda:#2b4b6d;
 }
 [data-theme="dark"]{
   --azul-cl:#1b3550;
@@ -226,6 +241,7 @@ tbody tr.pago:hover{background:var(--pago-hover)}
 [data-theme="dark"] .bdg.cp{color:#0b111a}
 [data-theme="dark"] .stbtn.pend{background:var(--vermelho-bg);color:var(--vermelho);border-color:#5a2422}
 [data-theme="dark"] .stbtn.pago{background:var(--verde-bg);color:var(--verde);border-color:#1f5133}
+[data-theme="dark"] .stbtn.agp{background:var(--azul-cl);color:var(--azul);border-color:var(--agp-borda)}
 
 /* ===== NOVOS COMPONENTES ===== */
 .finbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -292,6 +308,7 @@ tbody tr.pago:hover{background:var(--pago-hover)}
     <div class="seg" id="segStatus">
       <button data-s="todos" class="on" onclick="setStatus('todos')">Todos</button>
       <button data-s="pendente" onclick="setStatus('pendente')">Pendentes</button>
+      <button data-s="agp" onclick="setStatus('agp')">Ag. pagamento</button>
       <button data-s="pago" onclick="setStatus('pago')">Pagos</button>
     </div>
     <select id="ano" onchange="render()"></select>
@@ -396,6 +413,25 @@ function brl(v){return 'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDi
 function parseBR(s){return parseFloat(String(s).replace(/\./g,'').replace(',','.'))||0;}
 function fmtBR(v){return Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
 
+/* ---------- status: PENDENTE -> AG. PAGAMENTO -> PAGO ----------
+   No banco sao duas colunas booleanas: 'pago' e 'ag_pagamento'.
+   Regra: pago manda. Se pago=true o lancamento e PAGO (o banco zera ag_pagamento).
+   Se pago=false e ag_pagamento=true, esta separado aguardando o pagamento programado. */
+function ehAg(r){return !r.pago && !!r.ag_pagamento;}
+function stCls(r){return r.pago?'pago':(ehAg(r)?'agp':'pend');}
+function stLabel(r){return r.pago?'PAGO':(ehAg(r)?'AG. PAGAMENTO':'PENDENTE');}
+function stNext(r){
+  if(r.pago)          return {pago:false,ag_pagamento:false}; // PAGO -> PENDENTE
+  if(r.ag_pagamento)  return {pago:true ,ag_pagamento:false}; // AG. PAGAMENTO -> PAGO
+  return                     {pago:false,ag_pagamento:true }; // PENDENTE -> AG. PAGAMENTO
+}
+function stBtn(r){
+  const c=stCls(r), t=stLabel(r);
+  return isGestao
+    ? '<button class="stbtn '+c+'" onclick="togglePago('+jid(r)+')" title="Clique para mudar: PENDENTE → AG. PAGAMENTO → PAGO">'+t+'</button>'
+    : '<span class="stbtn '+c+'" style="cursor:default" title="Somente a gestao pode alterar o pagamento">'+t+'</span>';
+}
+
 /* ---------- dados (Supabase) ---------- */
 function getRecords(){return RECORDS;}
 async function loadData(){
@@ -420,7 +456,8 @@ function applyFilters(recs){
   const ano=document.getElementById('ano').value;
   const mes=document.getElementById('mes').value;
   return recs.filter(r=>{
-    if(filters.status==='pendente'&&r.pago)return false;
+    if(filters.status==='pendente'&&(r.pago||r.ag_pagamento))return false;
+    if(filters.status==='agp'&&!ehAg(r))return false;
     if(filters.status==='pago'&&!r.pago)return false;
     if(filters.grupos.size&&!filters.grupos.has(r.grupo))return false;
     if(filters.cp&&!r.cp)return false;
@@ -446,14 +483,18 @@ function render(){
 
 function renderStats(all){
   const vis=applyFilters(all);
-  const pend=vis.filter(r=>!r.pago);
+  const naoPagos=vis.filter(r=>!r.pago);          // tudo que ainda nao foi repassado
+  const agp=naoPagos.filter(r=>r.ag_pagamento);   // separados, com pagamento programado
+  const pend=naoPagos.filter(r=>!r.ag_pagamento); // ainda nem separados
   const pagos=vis.filter(r=>r.pago);
   const clientes=new Set(vis.map(r=>r.nome_norm)).size;
   const cps=vis.filter(r=>r.cp).length;
   let html='';
   if(isGestao){
-    const totalPend=pend.reduce((s,r)=>s+(r.valor_num||parseBR(r.valor)),0);
-    html+=card('money','A repassar (pendente)',brl(totalPend));
+    const totalPend=naoPagos.reduce((s,r)=>s+(r.valor_num||parseBR(r.valor)),0);
+    const totalAgp=agp.reduce((s,r)=>s+(r.valor_num||parseBR(r.valor)),0);
+    html+=card('money','A repassar (não pago)',brl(totalPend));
+    html+=card('agp','Ag. pagamento',brl(totalAgp));
     html+=card('','Lançamentos',vis.length);
     html+=card('','Clientes',clientes);
     html+=card('ok','Pagos',pagos.length);
@@ -462,6 +503,7 @@ function renderStats(all){
     html+=card('','Lançamentos',vis.length);
     html+=card('','Clientes',clientes);
     html+=card('money','Pendentes',pend.length);
+    html+=card('agp','Ag. pagamento',agp.length);
     html+=card('ok','Pagos',pagos.length);
     html+=card('cp','C.P.',cps);
   }
@@ -509,14 +551,14 @@ function rowHTML(r){
   const m=mesesPend(r.competencia);
   const proc='<span class="proc mono">'+esc(r.processo)+'</span> <button class="copy" onclick="copyTxt(\''+r.processo+'\')" title="Copiar processo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>';
   const cli='<span class="cli">'+esc(r.nome)+(r.obs?'<span class="obsdot" title="'+esc(r.obs)+'"></span>':'')+'</span>';
-  const stt=isGestao?'<button class="stbtn '+(r.pago?'pago':'pend')+'" onclick="togglePago('+jid(r)+')">'+(r.pago?'PAGO':'PENDENTE')+'</button>':'<span class="stbtn '+(r.pago?'pago':'pend')+'" style="cursor:default" title="Somente a gestao pode alterar o pagamento">'+(r.pago?'PAGO':'PENDENTE')+'</span>';
+  const stt=stBtn(r);
   const cp='<input type="checkbox" class="cpbox" '+(r.cp?'checked':'')+' onchange="toggleCp('+jid(r)+')" title="Cliente Problema">';
   let cells='<td data-l="C.P.">'+cp+'</td>'
     +'<td data-l="Cliente">'+cli+'</td>'
     +'<td data-l="CPF"><span class="cpf mono">'+esc(r.cpf||'—')+'</span></td>'
     +'<td data-l="Processo">'+proc+'</td>'
     +'<td data-l="Réu"><span class="reu">'+esc(r.reu||'—')+'</span></td>'
-    +'<td data-l="Competência">'+esc(r.competencia)+'</td>';
+    +'<td data-l="Competência"><span class="comp">'+esc(r.competencia)+'</span></td>';
   if(isGestao){
     cells+='<td data-l="Tempo pendente"><span class="ag '+tempoCls(m)+'">'+tempoLabel(m)+'</span></td>';
   }
@@ -527,7 +569,7 @@ function rowHTML(r){
   cells+='<td data-l="Status">'+stt+'</td>';
   if(!isGestao){
     const obsShort=r.obs?esc(r.obs.length>30?r.obs.slice(0,30)+'…':r.obs):'<span style="color:#aab">—</span>';
-    cells+='<td data-l="OBS">'+obsShort+'</td>';
+    cells+='<td data-l="OBS"><span class="obs-s">'+obsShort+'</span></td>';
   }
   cells+='<td data-l=""><div class="acts">'
     +'<button class="ico" onclick="toggleExp('+jid(r)+')" title="'+(isGestao?'Financeiro e baixa de pagamento':'Detalhes')+'">'+(isGestao?'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>')+'</button>'
@@ -537,7 +579,7 @@ function rowHTML(r){
     +'</div></td>';
   const ncol=cols_count();
   const exp='<tr class="exprow" id="exp_'+rid(r)+'" style="display:none"><td class="exp" colspan="'+ncol+'">'+expHTML(r)+'</td></tr>';
-  return '<tr class="'+(r.pago?'pago':'')+'" id="row_'+rid(r)+'">'+cells+'</tr>'+exp;
+  return '<tr class="'+(r.pago?'pago':(ehAg(r)?'agp':''))+'" id="row_'+rid(r)+'">'+cells+'</tr>'+exp;
 }
 function cols_count(){return isGestao?11:10;}
 
@@ -570,7 +612,8 @@ function renderCards(recs){
     const list=map[k];
     const nome=list[0].nome;
     const cpf=list.map(r=>r.cpf).find(c=>c)||'';
-    const pend=list.filter(r=>!r.pago).length, pagos=list.filter(r=>r.pago).length;
+    const agp=list.filter(ehAg).length;
+    const pend=list.filter(r=>!r.pago&&!r.ag_pagamento).length, pagos=list.filter(r=>r.pago).length;
     const anyCP=list.some(r=>r.cp);
     let totHtml='';
     if(isGestao){const tot=list.filter(r=>!r.pago).reduce((s,r)=>s+(r.valor_num||0),0);totHtml='<div class="tot mono">'+brl(tot)+'</div>';}
@@ -582,6 +625,7 @@ function renderCards(recs){
       +'<div class="card-badges">'
         +'<span class="bdg proc">'+list.length+' processo'+(list.length>1?'s':'')+'</span>'
         +(pend?'<span class="bdg pend">'+pend+' pendente'+(pend>1?'s':'')+'</span>':'')
+        +(agp?'<span class="bdg agp">'+agp+' ag. pagamento</span>':'')
         +(pagos?'<span class="bdg pago">'+pagos+' pago'+(pagos>1?'s':'')+'</span>':'')
         +(anyCP?'<span class="bdg cp">C.P.</span>':'')
         +'<button class="chip" style="padding:2px 10px;font-size:10.5px" onclick="openRecCliente(\''+cssid(k)+'\')">Recibo do cliente</button>'
@@ -596,11 +640,11 @@ function clRow(r){
   const m=mesesPend(r.competencia);
   let right=isGestao?'<span class="val mono">'+brl(r.valor_num||0)+'</span>':'';
   let meta='<span class="gtag g-'+gcls(r.grupo)+'">'+esc(r.grupo)+'</span>'
-    +'<span>'+esc(r.competencia)+'</span>'
+    +'<span class="comp">'+esc(r.competencia)+'</span>'
     +(isGestao?'<span class="ag '+tempoCls(m)+'">'+tempoLabel(m)+'</span>':'')
-    +(isGestao?'<button class="stbtn '+(r.pago?'pago':'pend')+'" onclick="togglePago('+jid(r)+')">'+(r.pago?'PAGO':'PENDENTE')+'</button>':'<span class="stbtn '+(r.pago?'pago':'pend')+'" style="cursor:default" title="Somente a gestao pode alterar o pagamento">'+(r.pago?'PAGO':'PENDENTE')+'</span>')
+    +stBtn(r)
     +(r.cp?'<span class="bdg cp">C.P.</span>':'');
-  return '<div class="cl-row">'
+  return '<div class="cl-row'+(r.pago?' pago':(ehAg(r)?' agp':''))+'">'
     +'<div class="cl-top"><span class="proc mono">'+esc(r.processo)+' <button class="copy" onclick="copyTxt(\''+r.processo+'\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></span>'+right+'</div>'
     +'<div class="cl-meta"><span class="reu">Réu: '+esc(r.reu||'—')+'</span>'+meta+'</div>'
     +(r.obs?'<div class="cl-meta" style="color:#b5580a">Obs: '+esc(r.obs)+'</div>':'')
@@ -618,14 +662,19 @@ async function persist(id,patch){
   return true;
 }
 async function toggleCp(id){const r=findRec(id);if(!r)return;r.cp=!r.cp;render();await persist(id,{cp:r.cp});}
-async function togglePago(id){if(!isGestao){toast('Somente a gestao pode alterar o pagamento','err');return;}const r=findRec(id);if(!r)return;r.pago=!r.pago;render();
-  if(await persist(id,{pago:r.pago}))toast(r.pago?'Marcado como PAGO':'Reaberto como pendente','ok');}
+async function togglePago(id){
+  if(!isGestao){toast('Somente a gestao pode alterar o pagamento','err');return;}
+  const r=findRec(id);if(!r)return;
+  const nx=stNext(r);                       // PENDENTE -> AG. PAGAMENTO -> PAGO -> PENDENTE
+  r.pago=nx.pago; r.ag_pagamento=nx.ag_pagamento; render();
+  if(await persist(id,nx))toast(r.pago?'Marcado como PAGO':(r.ag_pagamento?'Marcado como AG. PAGAMENTO':'Reaberto como pendente'),'ok');
+}
 function toggleExp(id){const el=document.getElementById('exp_'+cssid(id));if(el)el.style.display=el.style.display==='none'?'table-row':'none';}
 async function savePag(id){
   const dp=document.getElementById('dp_'+cssid(id)).value;
   const vp=document.getElementById('vp_'+cssid(id)).value;
   const ob=document.getElementById('ob_'+cssid(id)).value;
-  if(await persist(id,{data_pagamento:dp,valor_pago:vp,obs:ob,pago:true})){toast('Baixa salva','ok');await loadData();}
+  if(await persist(id,{data_pagamento:dp,valor_pago:vp,obs:ob,pago:true,ag_pagamento:false})){toast('Baixa salva','ok');await loadData();}
 }
 async function saveObs(id){
   const ob=document.getElementById('ob_'+cssid(id)).value;
@@ -686,7 +735,7 @@ async function saveModal(){
     busca:norm(nome+' '+v('m_cpf')+' '+v('m_processo')+' '+v('m_reu'))
   };
   if(isGestao) rec.valor_num=parseBR(v('m_valor'));
-  if(editId==null){ rec.pago=false; rec.data_pagamento=''; if(isGestao) rec.valor_pago=''; }
+  if(editId==null){ rec.pago=false; rec.ag_pagamento=false; rec.data_pagamento=''; if(isGestao) rec.valor_pago=''; }
   if(!sb)return;
   let res;
   if(editId!=null) res=await sb.from(TABLE).update(rec).eq('id',editId);
@@ -713,7 +762,7 @@ function doExportCSV(){
   recs.forEach(r=>{
     let row=[r.nome,r.cpf,r.processo,r.reu,r.grupo,r.competencia];
     if(isGestao){row=row.concat([tempoLabel(mesesPend(r.competencia)),fmtBR(r.valor_num),r.valor_pago||'',r.data_pagamento||'']);}
-    row=row.concat([r.pago?'PAGO':'PENDENTE',r.cp?'SIM':'',r.obs||'']);
+    row=row.concat([stLabel(r),r.cp?'SIM':'',r.obs||'']);
     rows.push(row);
   });
   const csv='\uFEFF'+rows.map(r=>r.map(c=>'"'+String(c==null?'':c).replace(/"/g,'""')+'"').join(';')).join('\r\n');
@@ -934,7 +983,7 @@ function extensoReais(v){
 const LOGTABLE=isGestao?'repasses_log':'repasses_log_atendimento';
 const CAMPO_NOME={nome:'Cliente',cpf:'CPF',processo:'Processo',reu:'Réu',grupo:'Grupo',advogado:'Advogado',
   tipo:'Tipo',conta:'Conta',competencia:'Competência',ano:'Ano',mes:'Mês',valor_num:'Valor',cp:'C.P.',
-  pago:'Status',data_pagamento:'Data do pagamento',valor_pago:'Valor pago',obs:'Observação',
+  pago:'Status',ag_pagamento:'Ag. pagamento',data_pagamento:'Data do pagamento',valor_pago:'Valor pago',obs:'Observação',
   pix_chave:'Chave Pix',pix_banco:'Banco',pix_agencia:'Agência',pix_conta:'Conta corrente'};
 function fmtDT(s){
   if(!s)return '';
@@ -952,6 +1001,7 @@ function logVal(campo,v){
   if(v===''||v==null)return '—';
   if(campo==='cp')return (v==='true')?'Sim':'Não';
   if(campo==='pago')return (v==='true')?'PAGO':'PENDENTE';
+  if(campo==='ag_pagamento')return (v==='true')?'Sim':'Não';
   if(campo==='valor_num')return brl(parseFloat(v)||0);
   return String(v);
 }
@@ -1106,7 +1156,7 @@ async function buildRec(list){
     procs+='<label class="rc-item"><input type="checkbox" data-id="'+x.id+'" '+(marc.has(String(x.id))?'checked':'')+' onchange="recTotal()">'
       +'<span class="p">'+esc(x.processo)+'</span>'
       +'<span style="color:var(--txt3);font-size:11px">'+esc(x.competencia)+'</span>'
-      +(x.pago?'<span class="bdg pago">pago</span>':'')+'</label>';
+      +(x.pago?'<span class="bdg pago">pago</span>':(ehAg(x)?'<span class="bdg agp">ag. pagamento</span>':''))+'</label>';
   });
   const b=list.find(x=>x.pix_chave||x.pix_banco||x.pix_agencia||x.pix_conta)||{};
   document.getElementById('recTitle').textContent='Recibo de quitação — '+r.nome;
