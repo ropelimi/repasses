@@ -42,7 +42,9 @@ header{background:linear-gradient(135deg,#16314e,#2d6a9f);color:#fff;padding:14p
 
 /* STATS */
 .stats{display:flex;gap:10px;padding:13px 22px;background:var(--surface);border-bottom:1px solid var(--borda);flex-wrap:wrap;overflow-x:auto}
-.sc{display:flex;flex-direction:column;justify-content:center;background:var(--cinza2);border:1px solid var(--borda);border-radius:10px;padding:9px 15px;min-width:120px}
+.sc{display:flex;flex-direction:column;justify-content:center;background:var(--cinza2);border:1px solid var(--borda);border-radius:10px;padding:9px 15px;min-width:120px;font-family:inherit;text-align:left;cursor:pointer;transition:border-color .12s,background .12s}
+.sc:hover{background:var(--hover2);border-color:var(--azul2)}
+.sc.on{border-color:var(--azul2);box-shadow:inset 0 0 0 1px var(--azul2);background:var(--surface)}
 .sc .sv{font-size:20px;font-weight:800;line-height:1.1;color:var(--azul)}
 .sc .sl{font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;margin-top:3px;font-weight:600}
 .sc.money .sv{color:var(--vermelho)}
@@ -887,6 +889,7 @@ function setStatus(s){
   /* Pagos abre direto o Financeiro, mantendo os filtros que ja estao aplicados. */
   if(s==='pago'&&isGestao){setView('fin');return;}
   if(s!=='pago'&&filters.view==='fin'){setView('flat');return;}
+  if(s==='devedor'&&filters.view==='cli'){setView('flat');return;}
   render();
 }
 function setView(v){filters.view=v;document.querySelectorAll('#segView button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
@@ -901,9 +904,12 @@ function applyFilters(recs,semStatus){
   const ano=document.getElementById('ano').value;
   const mes=document.getElementById('mes').value;
   return recs.filter(r=>{
-    /* Saldo devedor nao tem status, entao so aparece em "Todos". */
-    if(!semStatus&&filters.status!=='todos'&&ehDevedor(r))return false;
+    /* Saldo devedor nao tem status: aparece em "Todos" e no filtro proprio. */
+    if(!semStatus&&filters.status==='devedor'&&!ehDevedor(r))return false;
+    if(!semStatus&&filters.status!=='todos'&&filters.status!=='devedor'&&ehDevedor(r))return false;
     if(!semStatus){
+      /* 'aberto' e 'devedor' vem dos cartoes do topo (nao tem botao na barra) */
+      if(filters.status==='aberto'&&r.pago)return false;
       if(filters.status==='pendente'&&(r.pago||r.ag_pagamento))return false;
       if(filters.status==='agp'&&!ehAg(r))return false;
       if(filters.status==='pago'&&!r.pago)return false;
@@ -959,24 +965,53 @@ function renderStats(all){
     const totalDev=vis.filter(ehDevedor).reduce((s,r)=>s+vNum(r),0);
     /* o cartao de Ag. pagamento ja mostra o que sai de fato, com o desconto */
     const totalAgp=agp.reduce((s,r)=>{const a=abate(r);return s+(a?a.liquido:vNum(r));},0);
-    html+=card('money','A repassar (líquido)',brl(totalRep-totalDev));
-    if(totalDev>0)html+=card('dev','Saldo devedor',brl(totalDev));
-    html+=card('agp','Ag. pagamento',brl(totalAgp));
-    html+=card('','Lançamentos',vis.length);
-    html+=card('','Clientes',clientes);
-    html+=card('ok','Pagos',pagos.length);
-    html+=card('cp','C.P.',cps);
+    html+=card('money','A repassar (líquido)',brl(totalRep-totalDev),
+      "cardStatus('aberto')",filters.status==='aberto',
+      'Mostra tudo que ainda não foi repassado (pendentes + separados). O valor já vem com o saldo devedor descontado.');
+    if(totalDev>0)html+=card('dev','Saldo devedor',brl(totalDev),
+      "cardStatus('devedor')",filters.status==='devedor',
+      'Mostra só os lançamentos de saldo devedor.');
+    html+=card('agp','Ag. pagamento',brl(totalAgp),
+      "cardStatus('agp')",filters.status==='agp',
+      'Mostra só o que está separado para pagamento. O valor já vem com o desconto.');
+    html+=card('','Lançamentos',vis.length,
+      "cardStatus('todos')",filters.status==='todos',
+      'Limpa o filtro de status e mostra todos os lançamentos.');
+    html+=card('','Clientes',clientes,
+      "cardView('cli')",filters.view==='cli',
+      'Abre a visão Por cliente.');
+    html+=card('ok','Pagos',pagos.length,
+      "cardStatus('pago')",filters.status==='pago',
+      'Abre o Financeiro com os pagamentos já feitos.');
+    html+=card('cp','C.P.',cps,
+      'toggleCP()',filters.cp,
+      'Mostra só os Clientes Problema.');
   }else{
-    html+=card('','Lançamentos',vis.length);
-    html+=card('','Clientes',clientes);
-    html+=card('money','Pendentes',pend.length);
-    html+=card('agp','Ag. pagamento',agp.length);
-    html+=card('ok','Pagos',pagos.length);
-    html+=card('cp','C.P.',cps);
+    html+=card('','Lançamentos',vis.length,
+      "cardStatus('todos')",filters.status==='todos','Limpa o filtro de status e mostra todos os lançamentos.');
+    html+=card('','Clientes',clientes,
+      "cardView('cli')",filters.view==='cli','Abre a visão Por cliente.');
+    html+=card('money','Pendentes',pend.length,
+      "cardStatus('pendente')",filters.status==='pendente','Mostra só o que ainda não foi separado para pagamento.');
+    html+=card('agp','Ag. pagamento',agp.length,
+      "cardStatus('agp')",filters.status==='agp','Mostra só o que está separado para pagamento.');
+    html+=card('ok','Pagos',pagos.length,
+      "cardStatus('pago')",filters.status==='pago','Mostra só os lançamentos já pagos.');
+    html+=card('cp','C.P.',cps,
+      'toggleCP()',filters.cp,'Mostra só os Clientes Problema.');
   }
   document.getElementById('stats').innerHTML=html;
 }
-function card(cls,l,v){return '<div class="sc '+cls+'"><div class="sv">'+v+'</div><div class="sl">'+l+'</div></div>';}
+/* Cada cartao do topo e um atalho: clicar aplica o filtro do que ele mostra,
+   clicar de novo volta para "Todos". O cartao ativo fica com a borda azul. */
+function card(cls,l,v,acao,ativo,dica){
+  return '<button type="button" class="sc '+cls+(ativo?' on':'')+'"'
+    +(acao?(' onclick="'+acao+'"'):'')
+    +' title="'+esc(dica||('Clique para ver: '+l))+'">'
+    +'<div class="sv">'+v+'</div><div class="sl">'+l+'</div></button>';
+}
+function cardStatus(s){ setStatus(filters.status===s?'todos':s); }
+function cardView(v){ setView(filters.view===v?'flat':v); }
 
 const GORDER=['Max','Mariah','Jezieli','Yunes','Kaled','Nardon','JLM','Máximo Êxito'];
 const TIPOS_DEV=['Custas','Má-Fé','Réu','Indenização','Escritório','Estado'];

@@ -170,6 +170,19 @@ Conferido: alterado em **05/09/2026** → previsão **18/09/2026**, porque 20/09
    - Cartões do topo: para a gestão, **"A repassar (não pago)"** soma tudo que ainda não foi repassado (pendente **+** ag. pagamento) e **"Ag. pagamento"** mostra quanto já está programado. No atendimento os dois cartões mostram quantidade, não valor.
    - **Cuidado com o filtro:** "Pendentes" mostra só o que **ainda não foi separado**; o que está programado aparece em "Ag. pagamento". O cartão de valor, ao contrário, soma os dois — é o total que o escritório ainda deve repassar.
    - O **Financeiro** continua contando **só o que está PAGO** — separar para pagamento não entra no total. Mas desde 30/08/2026 ele **mostra os separados numa seção própria** ("A pagar — separados para pagamento"), com o botão **$** para dar a baixa sem sair da aba. Essa seção **ignora o período** do filtro (que é por data de pagamento) e **ignora a aba de status** — senão, estando em "Pagos", ela apareceria vazia.
+   - **Os cartões do topo são clicáveis** (30/08/2026): cada um aplica o filtro daquilo que mostra, e clicar de novo volta para "Todos". O cartão ativo fica com a borda azul.
+
+| Cartão | O que faz ao clicar |
+|---|---|
+| A repassar (líquido) | filtro `aberto` — tudo que ainda não foi repassado (pendentes + separados) |
+| Saldo devedor | filtro `devedor` — só as dívidas do cliente |
+| Ag. pagamento | filtro `agp` |
+| Lançamentos | limpa o filtro de status |
+| Clientes | abre a visão *Por cliente* |
+| Pagos | abre o Financeiro (na gestão) |
+| C.P. | liga/desliga o "Só C.P." |
+
+   Os filtros **`aberto` e `devedor` existem só pelos cartões** — não têm botão na barra de status, para não deixá-la larga demais no celular. Como nenhum botão da barra fica aceso nesses dois casos, é a **borda azul do cartão** que mostra o que está ativo.
    - **Os cartões do topo ignoram a aba de status** (30/08/2026). Eles resumem o filtro de grupo, período e busca; cada cartão já é de um status. Antes, na aba "Pagos" eles zeravam ("A repassar R$ 0,00") ao lado do Financeiro mostrando R$ 5.300,00 a pagar. Quem diz o que está na lista é o "Exibindo X de Y".
    - **Também dá para trocar o status dentro da edição do lançamento** (§4.11). Na gestão, as três opções; no atendimento, só PENDENTE e AG. PAGAMENTO.
    - Clicar em **"Pagos"** (gestão) **abre direto o Financeiro**, mantendo os filtros que já estavam aplicados. Sair de "Pagos" volta para "Por lançamento".
