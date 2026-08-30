@@ -489,3 +489,82 @@ end $function$;
 -- where table_schema='public' and table_name='repasses_atendimento'
 --   and column_name in ('valor_num','valor_pago');
 -- Esperado: 0 (o atendimento continua sem ver dinheiro).
+
+
+-- =====================================================================
+-- =====================================================================
+-- MIGRAÇÕES APLICADAS EM 30/08/2026 (DANF)
+-- Anexos, saldo devedor, previsão de pagamento e dados do cliente
+--
+-- ⚠️ JÁ APLICADO no banco de produção. Idempotente, mas confira antes.
+--
+-- Itens: 10) feriados e "dia 20 útil"   11) colunas novas em repasses
+--        12) tabela clientes            13) tabela anexos + bucket
+--        14) trava de pagamento (3ª versão)
+--        15) normalização + previsão automática
+--        16) view do atendimento        17) histórico
+--
+-- O SQL completo está no commit desta data. Os pontos que mais importam:
+-- =====================================================================
+
+-- 10) Feriados: nacionais + municipal de SP (25/01) + estadual de SP (09/07),
+--     mais os móveis (Carnaval, Sexta-feira Santa e Corpus Christi) calculados
+--     a partir da Páscoa. Funções: pascoa_br, eh_feriado_br, dia_util_anterior.
+--
+--     previsao_dia20(data): até o dia 15 vai para o dia 20 do próprio mês;
+--     do dia 16 em diante vai para o dia 20 do mês seguinte; se cair em fim de
+--     semana ou feriado, antecipa para o dia útil anterior.
+--     Conferido: 05/09/2026 -> 18/09/2026 (o dia 20 é domingo).
+
+-- 11) alter table public.repasses
+--       add column if not exists natureza text not null default 'repasse',
+--       add column if not exists tipo_devedor text,
+--       add column if not exists previsao_pagamento date;
+--     + check em natureza ('repasse','devedor')
+--     + check em tipo_devedor (Custas, Má-Fé, Réu, Indenização, Escritório, Estado)
+
+-- 12) public.clientes (nome_norm pk, nome, obs, cp, atualizado_por, atualizado_em)
+--     RLS: quem está logado lê, cria e atualiza; só a gestão exclui.
+--     Trigger trg_marca_autor_cliente carimba quem mexeu.
+
+-- 13) public.anexos (repasse_id nulo = anexo geral do cliente) + bucket
+--     privado 'anexos' no Storage.
+--     RLS: todo mundo logado LÊ; ao inserir, criado_por_email tem que ser o
+--     e-mail de quem está logado; excluir só a gestão OU quem enviou.
+--     As mesmas regras valem no Storage (policies anexos_obj_*).
+
+-- 14) bloqueia_pagamento_nao_gestao: o atendimento AGORA PODE mudar
+--     ag_pagamento (era barrado desde 10/08). Continua barrado em
+--     pago, data_pagamento, valor_pago e previsao_pagamento manual.
+
+-- 15) normaliza_status_repasse: pago = true zera ag_pagamento; virar
+--     AG. PAGAMENTO sem previsão agenda o próximo dia 20 útil (no fuso
+--     America/Sao_Paulo); voltar para PENDENTE limpa a previsão;
+--     natureza 'repasse' limpa tipo_devedor.
+
+-- 16) repasses_atendimento ganhou natureza, tipo_devedor e previsao_pagamento.
+--     Continua SEM valor_num e SEM valor_pago.
+
+-- 17) registra_log passou a gravar previsao_pagamento, natureza e tipo_devedor.
+
+
+-- =====================================================================
+-- CONFERÊNCIA RÁPIDA da migração de 30/08/2026 (só lê, é seguro)
+-- =====================================================================
+-- select column_name from information_schema.columns
+--  where table_schema='public' and table_name='repasses'
+--    and column_name in ('natureza','tipo_devedor','previsao_pagamento');
+-- Esperado: 3 linhas.
+--
+-- select tgname from pg_trigger
+--  where tgrelid='public.repasses'::regclass and not tgisinternal order by tgname;
+-- Esperado: trg_bloqueia_pagamento, trg_marca_autor, trg_normaliza_status, trg_registra_log
+--
+-- select id, public.eh_feriado_br(date '2026-12-25') as natal_e_feriado,
+--        public.previsao_dia20(date '2026-09-05') as deve_dar_18_09
+--   from storage.buckets where id='anexos';
+-- Esperado: uma linha, 'anexos', true, 2026-09-18.
+--
+-- select policyname from pg_policies
+--  where schemaname='storage' and tablename='objects' and policyname like 'anexos_obj%';
+-- Esperado: anexos_obj_envia, anexos_obj_exclui, anexos_obj_leitura
