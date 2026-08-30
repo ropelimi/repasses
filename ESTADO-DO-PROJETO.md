@@ -169,7 +169,8 @@ Conferido: alterado em **05/09/2026** → previsão **18/09/2026**, porque 20/09
    - **PAGO** = a linha inteira sai com o **texto riscado** (cliente, CPF, processo, réu, competência, valor). Botões, etiquetas de grupo e o "tempo pendente" **não** são riscados, para continuarem legíveis. Funciona no computador, no celular e nos modos claro e escuro.
    - Cartões do topo: para a gestão, **"A repassar (não pago)"** soma tudo que ainda não foi repassado (pendente **+** ag. pagamento) e **"Ag. pagamento"** mostra quanto já está programado. No atendimento os dois cartões mostram quantidade, não valor.
    - **Cuidado com o filtro:** "Pendentes" mostra só o que **ainda não foi separado**; o que está programado aparece em "Ag. pagamento". O cartão de valor, ao contrário, soma os dois — é o total que o escritório ainda deve repassar.
-   - O **Financeiro** continua contando **só o que está PAGO** — separar para pagamento não entra no financeiro.
+   - O **Financeiro** continua contando **só o que está PAGO** — separar para pagamento não entra no total. Mas desde 30/08/2026 ele **mostra os separados numa seção própria** ("A pagar — separados para pagamento"), com o botão **$** para dar a baixa sem sair da aba. Essa seção **ignora o período** do filtro (que é por data de pagamento) e **ignora a aba de status** — senão, estando em "Pagos", ela apareceria vazia.
+   - **Os cartões do topo ignoram a aba de status** (30/08/2026). Eles resumem o filtro de grupo, período e busca; cada cartão já é de um status. Antes, na aba "Pagos" eles zeravam ("A repassar R$ 0,00") ao lado do Financeiro mostrando R$ 5.300,00 a pagar. Quem diz o que está na lista é o "Exibindo X de Y".
    - **Também dá para trocar o status dentro da edição do lançamento** (§4.11). Na gestão, as três opções; no atendimento, só PENDENTE e AG. PAGAMENTO.
    - Clicar em **"Pagos"** (gestão) **abre direto o Financeiro**, mantendo os filtros que já estavam aplicados. Sair de "Pagos" volta para "Por lançamento".
 
@@ -223,6 +224,13 @@ Onde mais o líquido aparece:
 **A conta do cliente usa TODOS os lançamentos dele, nunca só os filtrados.** Foi um bug real em 30/08/2026: com o filtro "Ag. pagamento" ligado, o saldo devedor saía da lista e o cartão mostrava R$ 3.750,00 em vez de R$ 3.300,00. Vale para `renderCards`, `renderDetCliente` e `calcAbatimentos` — todos passam por `todosDoCliente(nome_norm)`.
 
 Só a gestão vê esses valores (o atendimento não vê dinheiro).
+
+### 4.8 Busca e formato do CPF (30/08/2026)
+- A busca acha o CPF e o processo **com ou sem pontos**: digitar `12345678900` encontra `123.456.789-00`, e vice-versa. Antes não achava — a `busca` gravada no banco só tinha a versão pontuada.
+- Funciona comparando **duas coisas em paralelo**: o texto (como antes) e, quando há 3 números ou mais, só os dígitos dos dois lados.
+- Ao salvar um lançamento, o CPF é **gravado no formato padrão** (`formataDoc`): 11 números viram `123.456.789-00`, 14 viram `12.345.678/0001-99`, e qualquer outra coisa fica como foi digitada (o sistema não inventa). O campo também se ajeita sozinho ao sair dele.
+- A coluna `busca` passou a guardar **também os números sem pontuação**, para os lançamentos novos.
+- Em 30/08/2026 os **269 CPFs já estavam no formato padrão** — não houve correção de dados a fazer.
 
 ### 4.7 Sugestões ao digitar no cadastro (NOVO em 30/08/2026)
 Para não cadastrar o mesmo cliente com nomes ou CPFs diferentes — erro de digitação é o problema nº 1 de consistência aqui.
@@ -305,7 +313,8 @@ config Supabase (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `_normUrl()`) → `MODE`/`
 - Mexer no ciclo, nos rótulos ou nas cores = mexer **só** em `ehAg` / `stCls` / `stLabel` / `stNext` / `stBtn`. Tudo o mais (tabela, cartões, CSV, recibo) consome essas funções.
 - Onde o status ainda aparece "cru": `applyFilters()` (filtro), `renderStats()` (cartões do topo), `renderCards()` (etiquetas do cliente), `savePag()` e `saveModal()` (gravação).
 - CSS: `.stbtn.agp`, `.bdg.agp`, `.sc.agp`, `tbody tr.agp`, `.cl-row.agp` e o bloco do riscado (`tbody tr.pago .cli, .cpf, .proc, .reu, .comp, .val, .obs-s`).
-- **C.P. tem dois níveis:** o do lançamento (`repasses.cp`, a caixinha da primeira coluna) e o do cliente (`clientes.cp`, na ficha do cliente). `ehCP(r)` junta os dois — é o que o filtro "Só C.P." e a contagem do topo usam. Quando o C.P. vem do cliente, aparece uma etiqueta ao lado do nome na lista.
+- **C.P. tem dois níveis:** o do lançamento (`repasses.cp`, a caixinha da primeira coluna) e o do cliente (`clientes.cp`, na ficha do cliente). `ehCP(r)` junta os dois — é o que o filtro "Só C.P." e a contagem do topo usam. Quando o C.P. vem do cliente, aparece uma etiqueta ao lado do nome **e a caixinha de todos os processos dele aparece marcada** (30/08/2026).
+  Nesse caso a caixinha fica **travada** (`disabled`), de propósito: desmarcar ali não faria efeito nenhum, porque a marcação vem do cliente. Para tirar, é em **Detalhes / OBS do cliente**, na visão *Por cliente*.
 - **Código morto conhecido:** o ramo do atendimento em `expHTML()` e a função `saveObs()` não são mais alcançados — desde 30/08 a linha de expansão só é criada na gestão, e o atendimento salva observação pela ficha de Detalhes / OBS. Ficaram no arquivo de propósito, para não mexer no que não precisa.
 
 **Os dois arquivos são gêmeos** — mudam só `<title>`, o subtítulo (2×) e `const MODE`.
@@ -382,6 +391,7 @@ rollback;
 - **`create or replace view` só acrescenta coluna no fim** e **apaga as opções da view se não forem repetidas** — por isso a `repasses_atendimento` é recriada sempre com `with (security_invoker = off)` explícito. As permissões (`grant`) sobrevivem, essas não precisam ser refeitas.
 - **`set_config('request.jwt.claims', ..., true)` vale até o fim da transação**, não até o fim do bloco `DO`. Num teste com `rollback`, se você simular o atendimento dentro do `DO` e depois rodar um `update` de migração fora dele, esse update roda **como se fosse o atendimento** e é barrado pela trava. Zerar com `perform set_config('request.jwt.claims', null, true)` antes de sair.
 - **Fechar a lista de sugestão no `blur` fecha a lista errada.** Ao pular do Réu para o Processo, o `blur` do Réu dispara um fechamento atrasado que apagava a lista que o Processo acabou de abrir — e o clique não preenchia nada. Por isso `acFechaDepois()` confere antes se o foco foi para outro campo com sugestão, e nesse caso não fecha.
+- **Tabela larga estourava o enquadro da tela.** Com 6 botões de ação por linha, a tabela ficou maior que a janela e a **página inteira** passou a rolar para o lado. Corrigido em 30/08/2026 com `.wrap{overflow-x:auto}` (a tabela rola dentro da própria caixa, a página nunca sai do lugar) mais uma dieta: `padding` das células 10→8px, ícones 15→14px, `gap` dos botões 4→2px e a conta do "a pagar" podendo quebrar linha (era `nowrap` e sozinha exigia ~150px). Conferido por `document.documentElement.scrollWidth > clientWidth` a 1365px e a 1180px.
 - **Ordem dos triggers é alfabética pelo nome.** `trg_normaliza_status` roda depois de `trg_bloqueia_pagamento` de propósito: primeiro barra quem não pode, depois arruma o dado.
 - **Formulário que envia campo travado dá erro na cara do usuário.** Quando o atendimento edita um lançamento **já pago**, a tela não pode mandar `pago`/`valor_pago`/`previsao_pagamento` — nem com o mesmo valor de antes, porque o trigger compara e recusa. Por isso o `select` de status **some** nesse caso, em vez de aparecer desabilitado.
 - **Data no banco é UTC.** A previsão usa `(now() at time zone 'America/Sao_Paulo')::date`; sem isso, das 21h em diante o banco já estaria no dia seguinte e a regra do "até o dia 15" erraria na virada do mês.
