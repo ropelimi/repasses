@@ -196,9 +196,24 @@ Botão de **clipe** com o número de arquivos: na linha do lançamento, na visã
 ### 4.5 Saldo devedor
 No **Novo lançamento**, o primeiro campo é **Tipo de lançamento**: *Repasse ao cliente* ou *Saldo devedor*. Escolhendo Saldo devedor aparece o **tipo**: Custas, Má-Fé, Réu, Indenização, Escritório, Estado.
 - Os dois aparecem **separados** na lista, com etiqueta marrom no saldo devedor.
+- **Saldo devedor não tem status nem previsão de pagamento** (mudança de 30/08/2026, a pedido). Ele serve só para abater de repasses e como informação nos casos de cliente sem repasse. Na coluna Status aparece o tipo (Custas, Má-Fé…) no lugar do botão; o botão **$** (baixa) não aparece; e ele fica **fora dos filtros** Pendentes / Ag. pagamento / Pagos, aparecendo só em "Todos".
+- **Como um saldo devedor "sai" da conta:** editando ou excluindo o lançamento. Não existe "quitar", justamente porque ele não tem ciclo de pagamento.
+- O banco garante isso sozinho: o trigger `trg_normaliza_status` zera `pago`, `ag_pagamento`, `previsao_pagamento`, `data_pagamento` e `valor_pago` de qualquer lançamento com `natureza = 'devedor'`.
 - Na **ficha do cliente** o valor sai **abatido**: repasse de R$ 3.000 com custa de R$ 500 mostra **R$ 2.500**, com a conta escrita embaixo.
 - **Não entra no Financeiro** (decisão de 30/08/2026: o Financeiro é o dinheiro que saiu para o cliente) e **não entra no recibo de quitação**.
 - Nos cartões do topo: **"A repassar (líquido)"** já é repasses − devedores, e um cartão **"Saldo devedor"** aparece quando existe algum.
+
+### 4.6 Saldo a pagar já com o desconto (NOVO em 30/08/2026)
+Quando um repasse está em **AG. PAGAMENTO** e o cliente tem saldo devedor, a tela mostra **quanto sai de fato**:
+
+> R$ 3.750,00
+> **a pagar R$ 3.300,00** — R$ 3.750,00 − R$ 450,00 devedor
+
+Aparece na coluna Valor da lista, na visão *Por cliente* e na ficha de Detalhes / OBS. O cartão **"Ag. pagamento"** do topo também já soma o valor líquido.
+
+**O desconto é aplicado uma vez só.** Se o cliente tem vários lançamentos separados, `calcAbatimentos()` distribui o saldo devedor do primeiro para o último (ordenando pela previsão e depois pelo id), até acabar — nunca descontando a mesma dívida duas vezes. A conta usa **todos** os lançamentos, não só os que estão passando pelo filtro da tela; senão filtrar por "Ag. pagamento" esconderia o devedor e o desconto sumiria.
+
+Só a gestão vê esses valores (o atendimento não vê dinheiro).
 5. **Financeiro** (só gestão) — filtro por período pela **data de pagamento** (+ atalhos Este mês / Mês passado / Este ano / Todo o período), total pago, quantidade, clientes, valor médio, total por grupo, tabela e CSV com linha de total. Avisa quando há pago sem data.
 6. **Painel de Usuários** (só gestão) — botão **"Usuários"** no topo. Lista todos (nome, e-mail, perfil colorido) e permite **criar**, **editar** (nome, perfil, senha opcional) e **excluir**. No atendimento o botão fica escondido.
 7. **Modo claro/escuro** — botão no topo, salvo em localStorage por pessoa.
@@ -339,6 +354,7 @@ rollback;
 - **E riscar o `<td>` também quebra no celular:** no modo estreito o `td` vira `display:flex`, e riscado **não desce** para filhos de um flex container. Ou seja: riscar o `td` sumiria justamente no celular. Mais um motivo para riscar os textos diretamente.
 - **Foi preciso criar `<span class="comp">` e `<span class="obs-s">`** porque competência e observação eram texto solto dentro do `<td>` — texto solto não tem como receber estilo próprio.
 - **`create or replace view` só acrescenta coluna no fim** e **apaga as opções da view se não forem repetidas** — por isso a `repasses_atendimento` é recriada sempre com `with (security_invoker = off)` explícito. As permissões (`grant`) sobrevivem, essas não precisam ser refeitas.
+- **`set_config('request.jwt.claims', ..., true)` vale até o fim da transação**, não até o fim do bloco `DO`. Num teste com `rollback`, se você simular o atendimento dentro do `DO` e depois rodar um `update` de migração fora dele, esse update roda **como se fosse o atendimento** e é barrado pela trava. Zerar com `perform set_config('request.jwt.claims', null, true)` antes de sair.
 - **Ordem dos triggers é alfabética pelo nome.** `trg_normaliza_status` roda depois de `trg_bloqueia_pagamento` de propósito: primeiro barra quem não pode, depois arruma o dado.
 - **Formulário que envia campo travado dá erro na cara do usuário.** Quando o atendimento edita um lançamento **já pago**, a tela não pode mandar `pago`/`valor_pago`/`previsao_pagamento` — nem com o mesmo valor de antes, porque o trigger compara e recusa. Por isso o `select` de status **some** nesse caso, em vez de aparecer desabilitado.
 - **Data no banco é UTC.** A previsão usa `(now() at time zone 'America/Sao_Paulo')::date`; sem isso, das 21h em diante o banco já estaria no dia seguinte e a regra do "até o dia 15" erraria na virada do mês.

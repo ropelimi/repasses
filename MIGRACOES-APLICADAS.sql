@@ -568,3 +568,30 @@ end $function$;
 -- select policyname from pg_policies
 --  where schemaname='storage' and tablename='objects' and policyname like 'anexos_obj%';
 -- Esperado: anexos_obj_envia, anexos_obj_exclui, anexos_obj_leitura
+
+
+-- =====================================================================
+-- MIGRAÇÃO APLICADA EM 30/08/2026 (parte 2)
+-- Saldo devedor sem status nem previsão de pagamento
+-- =====================================================================
+-- 18) normaliza_status_repasse: para natureza = 'devedor', zera pago,
+--     ag_pagamento, previsao_pagamento, data_pagamento e valor_pago.
+--     Saldo devedor serve só para abater de repasses e como informação.
+--
+-- 19) bloqueia_pagamento_nao_gestao: passa a recusar que quem não é gestão
+--     converta um lançamento JÁ PAGO em saldo devedor — pela regra 18 isso
+--     zeraria o pagamento sem passar pela trava.
+--
+-- 20) Ajuste de dados (rodou uma vez):
+--     update public.repasses
+--        set previsao_pagamento = public.previsao_dia20(
+--              (now() at time zone 'America/Sao_Paulo')::date)
+--      where natureza <> 'devedor' and ag_pagamento and previsao_pagamento is null;
+--     -- 2 lançamentos estavam em AG. PAGAMENTO desde antes da regra do dia 20
+--     -- e ficaram sem previsão. Receberam 18/09/2026.
+--
+--     update public.repasses
+--        set pago = false, ag_pagamento = false, previsao_pagamento = null
+--      where natureza = 'devedor'
+--        and (pago or ag_pagamento or previsao_pagamento is not null);
+--     -- limpeza preventiva; não havia nenhum nessa situação.
