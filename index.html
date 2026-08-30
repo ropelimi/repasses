@@ -124,6 +124,8 @@ tbody tr.pago .cli,tbody tr.pago .val{color:var(--txt2)}
 .stbtn.dev{background:var(--marrom-bg);color:var(--marrom);border-color:#e8cbb4}
 .devtag{display:inline-block;padding:2px 9px;border-radius:20px;font-size:10.5px;font-weight:700;white-space:nowrap;background:var(--marrom-bg);color:var(--marrom)}
 .prev{display:inline-block;font-size:11px;font-weight:700;color:var(--azul);white-space:nowrap}
+.liq{font-size:10.5px;font-weight:700;color:var(--azul2);white-space:nowrap;margin-top:2px}
+.liq small{display:block;font-weight:600;color:var(--txt3);font-size:9.5px}
 .acts{display:flex;gap:4px;justify-content:flex-end}
 .ico{border:none;background:transparent;cursor:pointer;color:var(--txt3);padding:5px;border-radius:6px}
 .ico:hover{background:var(--hover2);color:var(--azul2)}
@@ -678,6 +680,34 @@ function ehDevedor(r){return r&&r.natureza==='devedor';}
 /* C.P. vale se estiver marcado no lancamento OU no cliente inteiro. */
 function ehCP(r){return !!r.cp||!!cliInfo(r.nome_norm).cp;}
 function valorAberto(r){return r.pago?0:Number(r.valor_num||0);}
+/* Saldo a pagar de um lancamento em AG. PAGAMENTO: o valor dele menos o saldo
+   devedor do cliente. Se o cliente tem mais de um lancamento separado, o
+   desconto e aplicado UMA VEZ SO, do primeiro para o ultimo (pela previsao). */
+let ABATE={};
+function calcAbatimentos(recs){
+  ABATE={};
+  const porCliente={};
+  recs.forEach(r=>{(porCliente[r.nome_norm]=porCliente[r.nome_norm]||[]).push(r);});
+  Object.keys(porCliente).forEach(nn=>{
+    const list=porCliente[nn];
+    let devedor=list.filter(ehDevedor).reduce((s,r)=>s+Number(r.valor_num||0),0);
+    if(devedor<=0)return;
+    const ags=list.filter(r=>!ehDevedor(r)&&ehAg(r)).sort((a,b)=>
+      String(a.previsao_pagamento||'').localeCompare(String(b.previsao_pagamento||''))||(a.id-b.id));
+    ags.forEach(r=>{
+      const bruto=Number(r.valor_num||0);
+      const desc=Math.min(devedor,bruto);
+      if(desc>0){ABATE[r.id]={bruto:bruto,desconto:desc,liquido:bruto-desc};devedor-=desc;}
+    });
+  });
+}
+function abate(r){return (r&&ABATE[r.id])||null;}
+function abateHTML(r){
+  const a=abate(r);
+  if(!a||!isGestao)return '';
+  return '<div class="liq" title="Valor do lançamento menos o saldo devedor do cliente">a pagar '
+    +brl(a.liquido)+'<small>'+brl(a.bruto)+' − '+brl(a.desconto)+' devedor</small></div>';
+}
 function totaisCliente(list){
   const rep=list.filter(r=>!ehDevedor(r)).reduce((s,r)=>s+valorAberto(r),0);
   const dev=list.filter(ehDevedor).reduce((s,r)=>s+valorAberto(r),0);
@@ -718,10 +748,12 @@ function renderDetLanc(){
     +di('Tipo de lançamento',ehDevedor(r)
         ?'<span class="devtag">Saldo devedor'+(r.tipo_devedor?' · '+esc(r.tipo_devedor):'')+'</span>'
         :'Repasse ao cliente')
-    +di('Status',stEstatico(r))
-    +(r.previsao_pagamento?di('Previsão de pagamento','<span class="prev">'+dataBR(r.previsao_pagamento)+'</span>'):'')
+    +(ehDevedor(r)?'':di('Status',stEstatico(r)))
+    +((r.previsao_pagamento&&!ehDevedor(r))?di('Previsão de pagamento','<span class="prev">'+dataBR(r.previsao_pagamento)+'</span>'):'')
     +(isGestao?di('Tempo pendente','<span class="ag '+tempoCls(m)+'">'+tempoLabel(m)+'</span>'):'')
-    +(isGestao?di('Valor lançado','<span class="val mono">'+brl(r.valor_num||0)+'</span>'):'')
+    +(isGestao?di(ehDevedor(r)?'Valor devido':'Valor lançado','<span class="val mono">'+brl(r.valor_num||0)+'</span>'):'')
+    +(abate(r)?di('A pagar (já com o desconto)','<span class="val mono" style="color:var(--azul2)">'+brl(abate(r).liquido)
+        +'</span><div class="hint">'+brl(abate(r).bruto)+' menos '+brl(abate(r).desconto)+' de saldo devedor deste cliente</div>'):'')
     +(r.pago&&isGestao?di('Valor pago','<span class="val mono" style="color:var(--verde)">'+brl(finValor(r))+'</span>'):'')
     +(r.pago?di('Data do pagamento',esc(dataBR(r.data_pagamento))):'')
     +'</div>';
@@ -840,6 +872,8 @@ function applyFilters(recs){
   const ano=document.getElementById('ano').value;
   const mes=document.getElementById('mes').value;
   return recs.filter(r=>{
+    /* Saldo devedor nao tem status, entao so aparece em "Todos". */
+    if(filters.status!=='todos'&&ehDevedor(r))return false;
     if(filters.status==='pendente'&&(r.pago||r.ag_pagamento))return false;
     if(filters.status==='agp'&&!ehAg(r))return false;
     if(filters.status==='pago'&&!r.pago)return false;
@@ -855,6 +889,7 @@ function applyFilters(recs){
 /* ---------- render ---------- */
 function render(){
   const all=getRecords();
+  calcAbatimentos(all);          /* usa TODOS os lancamentos, nao so os filtrados */
   const recs=applyFilters(all);
   renderStats(all);
   renderGroupChips(all);
@@ -867,18 +902,20 @@ function render(){
 
 function renderStats(all){
   const vis=applyFilters(all);
-  const naoPagos=vis.filter(r=>!r.pago);          // tudo que ainda nao foi repassado
+  const semDev=vis.filter(r=>!ehDevedor(r));      // saldo devedor nao tem status
+  const naoPagos=semDev.filter(r=>!r.pago);       // repasses que ainda nao sairam
   const agp=naoPagos.filter(r=>r.ag_pagamento);   // separados, com pagamento programado
   const pend=naoPagos.filter(r=>!r.ag_pagamento); // ainda nem separados
-  const pagos=vis.filter(r=>r.pago);
+  const pagos=semDev.filter(r=>r.pago);
   const clientes=new Set(vis.map(r=>r.nome_norm)).size;
   const cps=vis.filter(ehCP).length;
   let html='';
   if(isGestao){
     const vNum=r=>Number(r.valor_num||parseBR(r.valor)||0);
-    const totalRep=naoPagos.filter(r=>!ehDevedor(r)).reduce((s,r)=>s+vNum(r),0);
-    const totalDev=naoPagos.filter(ehDevedor).reduce((s,r)=>s+vNum(r),0);
-    const totalAgp=agp.filter(r=>!ehDevedor(r)).reduce((s,r)=>s+vNum(r),0);
+    const totalRep=naoPagos.reduce((s,r)=>s+vNum(r),0);
+    const totalDev=vis.filter(ehDevedor).reduce((s,r)=>s+vNum(r),0);
+    /* o cartao de Ag. pagamento ja mostra o que sai de fato, com o desconto */
+    const totalAgp=agp.reduce((s,r)=>{const a=abate(r);return s+(a?a.liquido:vNum(r));},0);
     html+=card('money','A repassar (líquido)',brl(totalRep-totalDev));
     if(totalDev>0)html+=card('dev','Saldo devedor',brl(totalDev));
     html+=card('agp','Ag. pagamento',brl(totalAgp));
@@ -941,7 +978,7 @@ function rowHTML(r){
   const cliCP=cliInfo(r.nome_norm).cp;
   const cli='<span class="cli">'+esc(r.nome)+(r.obs?'<span class="obsdot" title="'+esc(r.obs)+'"></span>':'')+'</span>'
     +(cliCP?' <span class="bdg cp" title="Cliente inteiro marcado como C.P.">C.P.</span>':'');
-  const stt=stBtn(r);
+  const stt=ehDevedor(r)?'':stBtn(r);
   const cp='<input type="checkbox" class="cpbox" '+(r.cp?'checked':'')+' onchange="toggleCp('+jid(r)+')" title="Cliente Problema">';
   let cells='<td data-l="C.P.">'+cp+'</td>'
     +'<td data-l="Cliente">'+cli+'</td>'
@@ -954,10 +991,12 @@ function rowHTML(r){
   }
   cells+='<td data-l="Grupo"><span class="gtag g-'+gcls(r.grupo)+'">'+esc(r.grupo)+'</span></td>';
   if(isGestao){
-    cells+='<td data-l="Valor"><span class="val mono">'+brl(r.valor_num||parseBR(r.valor))+'</span></td>';
+    cells+='<td data-l="Valor"><span class="val mono">'+brl(r.valor_num||parseBR(r.valor))+'</span>'+abateHTML(r)+'</td>';
   }
-  cells+='<td data-l="Status">'+stt
-    +((r.previsao_pagamento&&!r.pago)?'<div class="prev" title="Previsão de pagamento">prev. '+dataBR(r.previsao_pagamento)+'</div>':'')
+  cells+='<td data-l="Status">'
+    +(ehDevedor(r)
+      ? '<span class="devtag">'+esc(r.tipo_devedor||'Saldo devedor')+'</span>'
+      : stt+((r.previsao_pagamento&&!r.pago)?'<div class="prev" title="Previsão de pagamento">prev. '+dataBR(r.previsao_pagamento)+'</div>':''))
     +'</td>';
   if(!isGestao){
     const obsShort=r.obs?esc(r.obs.length>30?r.obs.slice(0,30)+'…':r.obs):'<span style="color:#aab">—</span>';
@@ -965,14 +1004,14 @@ function rowHTML(r){
   }
   cells+='<td data-l=""><div class="acts">'
     +'<button class="ico" onclick="openDet('+jid(r)+')" title="Detalhes / OBS">'+SVG_OLHO+'</button>'
-    +(isGestao?'<button class="ico" onclick="toggleExp('+jid(r)+')" title="Financeiro e baixa de pagamento">'+SVG_CIFRAO+'</button>':'')
+    +((isGestao&&!ehDevedor(r))?'<button class="ico" onclick="toggleExp('+jid(r)+')" title="Financeiro e baixa de pagamento">'+SVG_CIFRAO+'</button>':'')
     +clipBtn(anexosDoLanc(r.id).length+anexosGeraisDoCliente(r.nome_norm).length,'openAnex(\''+'lanc'+'\','+jid(r)+')')
     +'<button class="ico" onclick="openRec('+jid(r)+')" title="Recibo de quitação"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></button>'
     +'<button class="ico" onclick="openModal('+jid(r)+')" title="Editar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>'
     +(isGestao?'<button class="ico del" onclick="delRec('+jid(r)+')" title="Excluir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>':'')
     +'</div></td>';
   const ncol=cols_count();
-  const exp=isGestao?('<tr class="exprow" id="exp_'+rid(r)+'" style="display:none"><td class="exp" colspan="'+ncol+'">'+expHTML(r)+'</td></tr>'):'';
+  const exp=(isGestao&&!ehDevedor(r))?('<tr class="exprow" id="exp_'+rid(r)+'" style="display:none"><td class="exp" colspan="'+ncol+'">'+expHTML(r)+'</td></tr>'):'';
   return '<tr class="'+(r.pago?'pago':(ehAg(r)?'agp':''))+'" id="row_'+rid(r)+'">'+cells+'</tr>'+exp;
 }
 function cols_count(){return isGestao?11:10;}
@@ -1009,7 +1048,8 @@ function renderCards(recs){
     const nome=list[0].nome;
     const cpf=list.map(r=>r.cpf).find(c=>c)||'';
     const agp=list.filter(ehAg).length;
-    const pend=list.filter(r=>!r.pago&&!r.ag_pagamento).length, pagos=list.filter(r=>r.pago).length;
+    const pend=list.filter(r=>!ehDevedor(r)&&!r.pago&&!r.ag_pagamento).length,
+          pagos=list.filter(r=>!ehDevedor(r)&&r.pago).length;
     const cinfo=cliInfo(k);
     const anyCP=list.some(r=>r.cp)||!!cinfo.cp;
     const nDev=list.filter(ehDevedor).length;
@@ -1045,13 +1085,12 @@ function renderCards(recs){
 }
 function clRow(r){
   const m=mesesPend(r.competencia);
-  let right=isGestao?'<span class="val mono">'+brl(r.valor_num||0)+'</span>':'';
+  let right=isGestao?('<span class="val mono">'+brl(r.valor_num||0)+'</span>'+abateHTML(r)):'';
   let meta='<span class="gtag g-'+gcls(r.grupo)+'">'+esc(r.grupo)+'</span>'
     +'<span class="comp">'+esc(r.competencia)+'</span>'
-    +(isGestao?'<span class="ag '+tempoCls(m)+'">'+tempoLabel(m)+'</span>':'')
-    +stBtn(r)
-    +((r.previsao_pagamento&&!r.pago)?'<span class="prev">prev. '+dataBR(r.previsao_pagamento)+'</span>':'')
-    +(ehDevedor(r)?'<span class="devtag">'+esc(r.tipo_devedor||'Saldo devedor')+'</span>':'')
+    +((isGestao&&!ehDevedor(r))?'<span class="ag '+tempoCls(m)+'">'+tempoLabel(m)+'</span>':'')
+    +(ehDevedor(r)?'<span class="devtag">'+esc(r.tipo_devedor||'Saldo devedor')+'</span>':stBtn(r))
+    +((r.previsao_pagamento&&!r.pago&&!ehDevedor(r))?'<span class="prev">prev. '+dataBR(r.previsao_pagamento)+'</span>':'')
     +(r.cp?'<span class="bdg cp">C.P.</span>':'')
     +'<button class="ico" onclick="openDet('+jid(r)+')" title="Detalhes / OBS">'+SVG_OLHO+'</button>'
     +clipBtn(anexosDoLanc(r.id).length,'openAnex(\''+'lanc'+'\','+jid(r)+')');
@@ -1139,27 +1178,33 @@ function openModal(id){
     +'<div class="fld full"><label>Observação</label><textarea id="m_obs">'+esc(r.obs||'')+'</textarea></div>'
     +'<div class="fld full" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="m_cp" class="cpbox" '+(r.cp?'checked':'')+'><label style="text-transform:none;font-size:13px;color:#444">Cliente Problema (C.P.)</label></div>';
   document.getElementById('mBody').innerHTML=html;
+  natChanged();
   document.getElementById('ov').classList.add('show');
 }
 function fldM(extra,label,key,val){return '<div class="fld '+extra+'"><label>'+label+'</label><input id="m_'+key+'" value="'+esc(val)+'"></div>';}
 function natChanged(){
   const dev=document.getElementById('m_nat').value==='devedor';
   document.getElementById('m_tdWrap').style.display=dev?'flex':'none';
+  /* Saldo devedor nao tem status nem previsao: serve so para abater. */
+  ['m_stFld','m_prevFld'].forEach(function(id){
+    const el=document.getElementById(id);
+    if(el)el.style.display=dev?'none':'flex';
+  });
 }
 function statusFieldM(r){
   const atual=r.pago?'pago':(r.ag_pagamento?'agp':'pendente');
   if(!isGestao&&r.pago){
-    return '<div class="fld"><label>Status</label><div style="padding:6px 0">'+stEstatico(r)+'</div>'
+    return '<div class="fld" id="m_stFld"><label>Status</label><div style="padding:6px 0">'+stEstatico(r)+'</div>'
       +'<div class="hint">Somente a gestão altera um lançamento já pago.</div></div>';
   }
   let ops='<option value="pendente"'+(atual==='pendente'?' selected':'')+'>PENDENTE</option>'
          +'<option value="agp"'+(atual==='agp'?' selected':'')+'>AG. PAGAMENTO</option>';
   if(isGestao)ops+='<option value="pago"'+(atual==='pago'?' selected':'')+'>PAGO</option>';
-  return '<div class="fld"><label>Status</label><select id="m_status">'+ops+'</select></div>';
+  return '<div class="fld" id="m_stFld"><label>Status</label><select id="m_status">'+ops+'</select></div>';
 }
 function prevFieldM(r){
   const val=r.previsao_pagamento||'';
-  return '<div class="fld"><label>Previsão de pagamento</label>'
+  return '<div class="fld" id="m_prevFld"><label>Previsão de pagamento</label>'
     +'<input type="date" id="m_prev" value="'+esc(val)+'"'+(isGestao?'':' disabled')+'>'
     +'<div class="hint">'+(isGestao
         ?'Preenchida sozinha no próximo dia 20 útil ao marcar AG. PAGAMENTO. Você pode trocar.'
@@ -1197,7 +1242,12 @@ async function saveModal(){
 
   /* status escolhido na tela (o atendimento nao ve a opcao PAGO) */
   const rAtual=(editId!=null)?findRec(editId):null;
-  const stEl=document.getElementById('m_status');
+  const stEl=(nat==='devedor')?null:document.getElementById('m_status');
+  if(nat==='devedor'){
+    /* Saldo devedor nao guarda status. O atendimento NAO manda esses campos:
+       a trava do banco compara campo a campo e recusaria a mudanca. */
+    if(isGestao){ rec.pago=false; rec.ag_pagamento=false; rec.previsao_pagamento=null; }
+  }
   if(stEl){
     const st=stEl.value;
     if(st==='pago'&&isGestao){
@@ -1209,7 +1259,7 @@ async function saveModal(){
     else                 { rec.pago=false; rec.ag_pagamento=false; }
   }
   /* previsao: so a gestao manda; no atendimento o banco preenche sozinho */
-  if(isGestao){ const p=v('m_prev'); rec.previsao_pagamento=p?p:null; }
+  if(isGestao&&nat!=='devedor'){ const p=v('m_prev'); rec.previsao_pagamento=p?p:null; }
 
   if(editId==null){
     if(rec.data_pagamento===undefined) rec.data_pagamento='';
@@ -1242,7 +1292,9 @@ function doExportCSV(){
     let row=[r.nome,r.cpf,r.processo,r.reu,r.grupo,r.competencia,
              ehDevedor(r)?('Saldo devedor'+(r.tipo_devedor?' - '+r.tipo_devedor:'')):'Repasse'];
     if(isGestao){row=row.concat([tempoLabel(mesesPend(r.competencia)),fmtBR(r.valor_num),r.valor_pago||'',r.data_pagamento||'']);}
-    row=row.concat([stLabel(r),r.previsao_pagamento?dataBR(r.previsao_pagamento):'',r.cp?'SIM':'',r.obs||'']);
+    row=row.concat([ehDevedor(r)?'':stLabel(r),
+                    (ehDevedor(r)||!r.previsao_pagamento)?'':dataBR(r.previsao_pagamento),
+                    r.cp?'SIM':'',r.obs||'']);
     rows.push(row);
   });
   const csv='\uFEFF'+rows.map(r=>r.map(c=>'"'+String(c==null?'':c).replace(/"/g,'""')+'"').join(';')).join('\r\n');
