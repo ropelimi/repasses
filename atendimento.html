@@ -574,18 +574,50 @@ function anexHTML(a){
     +(podeExcluirAnexo(a)?'<button class="ico del" onclick="excluirAnexo('+jid(a)+')" title="Excluir">'+SVG_LIXO+'</button>':'')
     +'</div>';
 }
+/* O cliente do Supabase NAO estava mandando o token de quem esta logado nas
+   chamadas de arquivo (nas de banco mandava), entao o servidor tratava o envio
+   como visitante anonimo e recusava com "row-level security policy".
+   Por isso falamos com a API de arquivos na mao, anexando o token sempre. */
+async function tokenSessao(){
+  if(!sb)return null;
+  try{ const {data}=await sb.auth.getSession();
+       return (data&&data.session&&data.session.access_token)||null; }
+  catch(e){ return null; }
+}
+function cabecalhoArquivo(token,extra){
+  return Object.assign({apikey:_KEY,Authorization:'Bearer '+token},extra||{});
+}
+async function erroArquivo(resp){
+  try{ const j=await resp.json(); return j.message||j.error||('código '+resp.status); }
+  catch(e){ return 'código '+resp.status; }
+}
+function urlArquivo(caminho){ return _URL+'/storage/v1/object/anexos/'+encodeURI(caminho); }
+async function removerArquivo(caminho,token){
+  try{ await fetch(urlArquivo(caminho),{method:'DELETE',headers:cabecalhoArquivo(token)}); }catch(e){}
+}
+
 async function enviarAnexo(input){
   const f=input.files&&input.files[0];
   if(!f||!anexCtx||!sb)return;
-  if(!MEU_EMAIL){toast('Não consegui identificar seu usuário. Recarregue a página e tente de novo.','err');return;}
+  if(!MEU_EMAIL){toast('Não consegui identificar seu usuário. Recarregue a página e entre de novo.','err');input.value='';return;}
   if(f.size>20*1024*1024){toast('Arquivo muito grande. O limite é 20 MB.','err');input.value='';return;}
+  const token=await tokenSessao();
+  if(!token){toast('Sua sessão expirou. Entre de novo para anexar.','err');input.value='';return;}
   const cat=(document.getElementById('anexCat')||{}).value||'documento';
   const limpo=f.name.replace(/[^\w.\-]+/g,'_').slice(-80);
   const pasta=(anexCtx.cliente_norm||'SEM_NOME').replace(/[^A-Za-z0-9]+/g,'_').slice(0,60);
   const caminho=pasta+'/'+Date.now()+'_'+limpo;
   toast('Enviando '+f.name+'…','ok');
-  const up=await sb.storage.from('anexos').upload(caminho,f,{contentType:f.type||'application/octet-stream',upsert:false});
-  if(up.error){toast('Erro ao enviar o arquivo: '+up.error.message,'err');input.value='';return;}
+  let resp;
+  try{
+    resp=await fetch(urlArquivo(caminho),{
+      method:'POST',
+      headers:cabecalhoArquivo(token,{'x-upsert':'false','Content-Type':f.type||'application/octet-stream'}),
+      body:f
+    });
+  }catch(e){ toast('Erro de conexão ao enviar o arquivo','err'); input.value=''; return; }
+  if(!resp.ok){ toast('Erro ao enviar o arquivo: '+(await erroArquivo(resp)),'err'); input.value=''; return; }
+
   const {error}=await sb.from('anexos').insert({
     repasse_id:(anexCtx.tipo==='lanc')?Number(anexCtx.id):null,
     cliente_norm:anexCtx.cliente_norm,
@@ -595,7 +627,7 @@ async function enviarAnexo(input){
   });
   input.value='';
   if(error){
-    await sb.storage.from('anexos').remove([caminho]);
+    await removerArquivo(caminho,token);   /* nao deixa arquivo orfao no Storage */
     toast('Erro ao registrar o anexo: '+error.message,'err');return;
   }
   await loadAnexos();renderAnexos();render();
@@ -604,10 +636,23 @@ async function enviarAnexo(input){
 async function baixarAnexo(id){
   const a=ANEXOS.find(x=>String(x.id)===String(id));
   if(!a||!sb)return;
-  const {data,error}=await sb.storage.from('anexos').createSignedUrl(a.arquivo,120,{download:a.nome_arquivo});
-  if(error||!data){toast('Erro ao gerar o link: '+((error&&error.message)||'desconhecido'),'err');return;}
+  const token=await tokenSessao();
+  if(!token){toast('Sua sessão expirou. Entre de novo para baixar.','err');return;}
+  let j;
+  try{
+    const resp=await fetch(_URL+'/storage/v1/object/sign/anexos/'+encodeURI(a.arquivo),{
+      method:'POST',
+      headers:cabecalhoArquivo(token,{'Content-Type':'application/json'}),
+      body:JSON.stringify({expiresIn:120})
+    });
+    if(!resp.ok){toast('Erro ao gerar o link: '+(await erroArquivo(resp)),'err');return;}
+    j=await resp.json();
+  }catch(e){ toast('Erro de conexão ao gerar o link','err'); return; }
+  const rel=(j&&(j.signedURL||j.signedUrl))||'';
+  if(!rel){toast('O servidor não devolveu o link do arquivo','err');return;}
+  const url=_URL+'/storage/v1'+rel+(rel.indexOf('?')>=0?'&':'?')+'download='+encodeURIComponent(a.nome_arquivo);
   const el=document.createElement('a');
-  el.href=data.signedUrl;el.target='_blank';el.rel='noopener';
+  el.href=url;el.target='_blank';el.rel='noopener';
   document.body.appendChild(el);el.click();el.remove();
 }
 async function excluirAnexo(id){
@@ -615,14 +660,17 @@ async function excluirAnexo(id){
   if(!a||!sb)return;
   if(!podeExcluirAnexo(a)){toast('Você só pode excluir os anexos que enviou','err');return;}
   if(!confirm('Excluir o anexo "'+a.nome_arquivo+'"?\nEsta ação não tem volta.'))return;
-  const rm=await sb.storage.from('anexos').remove([a.arquivo]);
-  if(rm.error){toast('Erro ao excluir o arquivo: '+rm.error.message,'err');return;}
+  const token=await tokenSessao();
+  if(!token){toast('Sua sessão expirou. Entre de novo para excluir.','err');return;}
+  let resp;
+  try{ resp=await fetch(urlArquivo(a.arquivo),{method:'DELETE',headers:cabecalhoArquivo(token)}); }
+  catch(e){ toast('Erro de conexão ao excluir o arquivo','err'); return; }
+  if(!resp.ok){ toast('Erro ao excluir o arquivo: '+(await erroArquivo(resp)),'err'); return; }
   const {error}=await sb.from('anexos').delete().eq('id',a.id);
   if(error){toast('O arquivo saiu, mas o registro não: '+error.message,'err');}
   await loadAnexos();renderAnexos();render();
   if(!error)toast('Anexo excluído','ok');
 }
-
 /* ---------- detalhes / OBS ---------- */
 function di(l,v){return '<div class="det-i"><div class="dl">'+l+'</div><div class="dv">'+v+'</div></div>';}
 function stEstatico(r){return '<span class="stbtn '+stCls(r)+'" style="cursor:default">'+stLabel(r)+'</span>';}
@@ -744,10 +792,27 @@ async function toggleCpCliente(el){
 
 /* ---------- dados (Supabase) ---------- */
 function getRecords(){return RECORDS;}
+/* Sessao vencida: em vez de errar a cada 30s (foram 73 tentativas recusadas
+   em 30/08/2026), para de tentar e pede o login de novo. */
+function sessaoCaiu(error){
+  const s=Number((error&&error.status)||0);
+  const m=String((error&&error.message)||'').toLowerCase();
+  return s===401||m.indexOf('jwt')>=0||m.indexOf('not authenticated')>=0;
+}
+function sessaoExpirou(){
+  if(pollT){clearInterval(pollT);pollT=null;}
+  const ov=document.getElementById('loginOv');
+  if(ov)ov.style.display='flex';
+  const msg=document.getElementById('loginMsg');
+  if(msg){msg.textContent='Sua sessão expirou. Entre de novo para continuar.';msg.style.display='block';}
+}
 async function loadData(){
   if(!sb)return;
   const {data,error}=await sb.from(TABLE).select('*').order('nome',{ascending:true});
-  if(error){toast('Erro ao carregar: '+error.message,'err');return;}
+  if(error){
+    if(sessaoCaiu(error)){sessaoExpirou();return;}
+    toast('Erro ao carregar: '+error.message,'err');return;
+  }
   RECORDS=data||[];
   await loadAnexos();
   await loadClientes();
