@@ -4,7 +4,7 @@
 transform.py - Gera 'atendimento.html' a partir de 'index.html'.
 
 Os dois arquivos sao GEMEOS: identicos, exceto 4 linhas
-(1x <title>, 2x subtitulo, 1x const MODE).
+(1x <title>, 2x etiqueta de perfil, 1x const MODE).
 
 REGRA DE OURO: nunca edite atendimento.html na mao.
 Edite SEMPRE index.html e rode este script para regerar o gemeo.
@@ -28,16 +28,16 @@ DESTINO = os.path.join(AQUI, "atendimento.html")
 # (texto_procurado, texto_substituto, quantas_ocorrencias_esperadas, rotulo)
 TROCAS = [
     (
-        "<title>Controle de Repasses \u2014 Gest\u00e3o \u00b7 Canaverde &amp; Aguiar Advogados</title>",
-        "<title>Consulta de Repasses \u2014 Atendimento \u00b7 Canaverde &amp; Aguiar Advogados</title>",
+        "<title>DANF \u2014 Controle de Repasses \u00b7 Gest\u00e3o</title>",
+        "<title>DANF \u2014 Controle de Repasses \u00b7 Atendimento</title>",
         1,
         "titulo da aba",
     ),
     (
-        '<div class="sub">Gest\u00e3o - Canaverde &amp; Aguiar Advogados</div>',
-        '<div class="sub">Atendimento - Canaverde &amp; Aguiar Advogados</div>',
+        '<span class="perfil">Gest\u00e3o</span>',
+        '<span class="perfil">Atendimento</span>',
         2,  # uma no cabecalho, outra na tela de login
-        "subtitulo (cabecalho + login)",
+        "etiqueta de perfil (cabecalho + login)",
     ),
     (
         'const MODE = "gestao";',

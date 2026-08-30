@@ -1,5 +1,5 @@
-# Sistema de Controle de Repasses — Canaverde & Aguiar Advogados
-**Documento de estado do projeto.** Atualizado em 10/08/2026.
+# DANF — Controle de Repasses (Canaverde & Aguiar Advogados)
+**Documento de estado do projeto.** Atualizado em 30/08/2026.
 **Leia este arquivo inteiro antes de responder qualquer pedido sobre este sistema.**
 
 ---
@@ -17,7 +17,7 @@
 
 ## 1. O que é
 
-Sistema web para controlar repasses de valores a clientes do escritório. Dois aplicativos HTML de página única (vanilla JS, sem framework, sem build), ligados a um banco Supabase compartilhado, publicados na Vercel via GitHub.
+Sistema web para controlar repasses de valores a clientes do escritório. Chama-se **DANF**; o subtítulo é **Controle de Repasses** e uma etiqueta ao lado do nome mostra em qual sistema a pessoa está (**GESTÃO** ou **ATENDIMENTO**). Dois aplicativos HTML de página única (vanilla JS, sem framework, sem build), ligados a um banco Supabase compartilhado, publicados na Vercel via GitHub.
 
 - **`index.html`** — acesso da **gestão**. Vê valores, tempo pendente, financeiro, gerencia usuários.
 - **`atendimento.html`** — acesso do **atendimento**. **Nunca vê valores** e **não altera pagamento** (bloqueio no banco, não só na tela).
@@ -39,12 +39,14 @@ Os dois leem/gravam a mesma base: o que um faz, o outro vê (atualização autom
 
 **Arquivos do repositório:** `index.html`, `atendimento.html`, `favicon.png`, `transform.py`, `ESTADO-DO-PROJETO.md`, `MIGRACOES-APLICADAS.sql`.
 
+**Storage do Supabase:** bucket **privado** `anexos` guarda os comprovantes e documentos. Os arquivos só abrem por link assinado (válido por 2 minutos), gerado depois do login.
+
 ---
 
 ## 3. Banco de dados (Supabase)
 
-### Tabela `repasses` — **267 lançamentos** (~R$ 639.161,35 | 15 pagos, 0 ag. pagamento, 252 pendentes em 10/08/2026)
-`id` (bigint identity), `nome`, `nome_norm` (sem acento, maiúsculo), `cpf`, `processo`, `reu`, `grupo`, `advogado`, `tipo`, `conta`, `competencia` ("Mmm/AAAA"), `ano`, `mes`, `valor_num` (numeric), `busca`, `cp` (bool), `pago` (bool), **`ag_pagamento` (bool, NOVO em 10/08/2026)**, `data_pagamento` (text ISO), `valor_pago` (text BR), `obs`, `pix_chave`, `pix_banco`, `pix_agencia`, `pix_conta`, `atualizado_por`, `atualizado_em`, `criado_em`.
+### Tabela `repasses` — **268 lançamentos** (~R$ 647.565,25 | 25 pagos, 2 ag. pagamento, 241 pendentes em 30/08/2026)
+`id` (bigint identity), `nome`, `nome_norm` (sem acento, maiúsculo), `cpf`, `processo`, `reu`, `grupo`, `advogado`, `tipo`, `conta`, `competencia` ("Mmm/AAAA"), `ano`, `mes`, `valor_num` (numeric), `busca`, `cp` (bool), `pago` (bool), **`ag_pagamento` (bool)**, **`previsao_pagamento` (date)**, **`natureza` (text: `repasse` | `devedor`)**, **`tipo_devedor` (text)**, `data_pagamento` (text ISO), `valor_pago` (text BR), `obs`, `pix_chave`, `pix_banco`, `pix_agencia`, `pix_conta`, `atualizado_por`, `atualizado_em`, `criado_em`.
 
 **Os três status saem de duas colunas booleanas** (não existe coluna "status"):
 
@@ -67,21 +69,55 @@ Grupos: Max, Mariah, Jezieli, Yunes, Kaled, Nardon, JLM, Máximo Êxito.
 
 ### Segurança de valores (atendimento não vê dinheiro)
 - **RLS na `repasses`:** policy `repasses_gestao` — só perfil `gestao` acessa a tabela (que tem valores).
-- **View `repasses_atendimento`** (`security_invoker = off`) — **não expõe `valor_num` nem `valor_pago`**. É por ela que o atendimento lê e grava. Desde 10/08/2026 inclui `ag_pagamento` (é status, não valor — o atendimento **vê**, mas **não altera**).
+- **View `repasses_atendimento`** (`security_invoker = off`) — **não expõe `valor_num` nem `valor_pago`**. É por ela que o atendimento lê e grava. Inclui também `ag_pagamento`, `previsao_pagamento`, `natureza` e `tipo_devedor` — são status, não dinheiro.
 - **Função `recibo_dados(bigint[])`** (security definer) — entrega o valor só dos lançamentos escolhidos, para o atendimento gerar recibo. **Está concedida (`granted`).**
   Para bloquear: `revoke execute on function public.recibo_dados(bigint[]) from authenticated;`
 
-### Segurança de pagamento (23/07/2026, ampliada em 10/08/2026)
+### Segurança de pagamento (3ª versão, 30/08/2026)
 - **Trigger `trg_bloqueia_pagamento`** (BEFORE INSERT OR UPDATE em `repasses`) → função `bloqueia_pagamento_nao_gestao()`.
-- Impede que **qualquer usuário logado que não seja `gestao`** altere `pago`, **`ag_pagamento`**, `data_pagamento` ou `valor_pago` — pela tela, pela view ou por chamada direta à API.
+- Impede que **qualquer usuário logado que não seja `gestao`** altere `pago`, `data_pagamento`, `valor_pago` e **`previsao_pagamento`** — pela tela, pela view ou por chamada direta à API.
+- **`ag_pagamento` saiu da trava em 30/08/2026, a pedido:** o atendimento **pode** mover um lançamento entre PENDENTE e AG. PAGAMENTO (pela tela de edição). O que ele nunca faz é marcar PAGO nem mexer em valores ou na data prevista.
 - `auth.uid()` nulo (service_role / migrações) **passa livre**, de propósito.
 - A restrição na tela é apenas cosmética; **a trava real é esta**.
 
-### Coerência do status (NOVO em 10/08/2026)
+### Coerência do status e previsão automática
 - **Trigger `trg_normaliza_status`** (BEFORE INSERT OR UPDATE) → função `normaliza_status_repasse()`.
-- Se `pago = true`, força `ag_pagamento = false`. Um lançamento pago não fica "aguardando pagamento".
+- `pago = true` força `ag_pagamento = false`. Um lançamento pago não fica "aguardando pagamento".
+- Virou **AG. PAGAMENTO** sem previsão → agenda o **próximo dia 20 útil** (regra no §3.1). Voltou para **PENDENTE** → a previsão é limpa. Ficou **PAGO** → a previsão é mantida, como histórico.
+- `natureza = 'repasse'` limpa `tipo_devedor` sozinho.
 - Roda **depois** da trava (ordem alfabética: `trg_bloqueia_pagamento` → `trg_marca_autor` → `trg_normaliza_status`), então a trava sempre enxerga o que o usuário realmente tentou gravar.
-- **Testado com `rollback`** antes de aplicar: 8 cenários (gestão marca/desmarca, atendimento barrado direto e pela view, observação do atendimento continua liberada, normalização do `pago`, view com o novo campo e sem valores).
+- **Testado com `rollback`** antes de aplicar: 12 cenários de status/previsão + 8 de anexos.
+
+### 3.1 Previsão de pagamento — o "dia 20 útil"
+Funções (todas `immutable`, sem tabela para manter):
+
+| Função | O que faz |
+|---|---|
+| `pascoa_br(ano)` | Calcula a Páscoa (algoritmo de Meeus), base dos feriados móveis. |
+| `eh_feriado_br(data)` | Nacionais fixos + **25/01** (aniversário de São Paulo) + **09/07** (Revolução Constitucionalista) + Carnaval (segunda e terça), Sexta-feira Santa e Corpus Christi. |
+| `dia_util_anterior(data)` | Anda para trás até cair em dia útil. |
+| `previsao_dia20(data)` | **Até o dia 15** → dia 20 do próprio mês. **Do dia 16 em diante** → dia 20 do mês seguinte. Se o dia 20 for fim de semana ou feriado, antecipa. |
+
+Conferido: alterado em **05/09/2026** → previsão **18/09/2026**, porque 20/09 cai num domingo.
+
+> ⚠️ **Ponto facultativo e feriado forense não entram** (só os feriados da lista acima). Se precisar de exceções, o caminho é trocar `eh_feriado_br` por uma tabela de feriados — foi a opção descartada em 30/08/2026.
+
+### Tabela `clientes` (NOVO em 30/08/2026)
+`nome_norm` (pk), `nome`, `obs`, `cp` (bool), `atualizado_por`, `atualizado_em`, `criado_em`.
+
+- Guarda a **observação geral** e o **C.P. do cliente inteiro** — vale para todos os processos dele. Não guarda valor nenhum.
+- **RLS:** quem está logado lê, cria e atualiza (gestão e atendimento); **só a gestão exclui**.
+- Trigger `trg_marca_autor_cliente` carimba quem mexeu e quando.
+- A observação **por processo** continua existindo, na coluna `repasses.obs`. São duas coisas diferentes.
+
+### Tabela `anexos` + bucket `anexos` (NOVO em 30/08/2026)
+`id`, `repasse_id` (nulo = anexo geral do cliente, `on delete cascade`), `cliente_norm`, `arquivo` (caminho no bucket, único), `nome_arquivo`, `mime`, `tamanho`, `categoria` (`recibo` | `comprovante` | `documento`), `criado_por_email`, `criado_por_nome`, `criado_em`.
+
+- **O atendimento vê e baixa tudo** — anexo não tem valor dentro, então não fere a regra de "atendimento não vê dinheiro". É assim de propósito: era o pedido.
+- **RLS da tabela:** todo mundo logado LÊ; ao inserir, `criado_por_email` **tem que ser** o e-mail de quem está logado (não dá para forjar autoria); excluir só a **gestão** ou **quem enviou**.
+- **RLS do Storage** (`anexos_obj_leitura` / `_envia` / `_exclui`): as mesmas regras, usando `owner = auth.uid()`.
+- Bucket **privado**: o arquivo só abre por **URL assinada de 2 minutos**, gerada pelo navegador depois do login.
+- **Testado com `rollback`:** 8 cenários, incluindo atendimento tentando anexar em nome de outra pessoa (recusado) e tentando apagar anexo alheio (recusado).
 
 ### Gerenciamento de usuários (NOVO em 23/07/2026) — todas SECURITY DEFINER, só `gestao`
 | Função | Argumentos | O que faz |
@@ -125,7 +161,7 @@ Grupos: Max, Mariah, Jezieli, Yunes, Kaled, Nardon, JLM, Máximo Êxito.
 
 1. **Lista de lançamentos** — busca (ignora acentos), filtros por status (Todos / Pendentes / **Ag. pagamento** / Pagos), ano, mês e grupo, "Só C.P.", ordenação, visão *Por lançamento* e *Por cliente* (consolidada).
 2. **Tempo pendente** (só gestão) — calculado pela **competência**: ≤3m verde, 4–6 amarelo, 7–12 laranja, >12 vermelho.
-3. **Baixa de pagamento** (**só gestão**) — data, valor pago, observação. Ao salvar, marca PAGO e limpa o "ag. pagamento".
+3. **Baixa de pagamento** (**só gestão**) — data e valor pago **já vêm preenchidos**: a data com hoje e o valor com **exatamente o valor lançado**, para não haver erro de digitação. Os dois continuam editáveis, para o caso de pagamento parcial. Ao salvar, marca PAGO e limpa o "ag. pagamento".
 4. **Três status: PENDENTE → AG. PAGAMENTO → PAGO** (atualizado em 10/08/2026)
    - Na gestão o status é um **botão que gira em ciclo** a cada clique, nessa ordem, e do PAGO volta para PENDENTE.
    - No atendimento é **texto fixo (somente leitura)** — e a trava real está no banco, não só na tela.
@@ -134,6 +170,35 @@ Grupos: Max, Mariah, Jezieli, Yunes, Kaled, Nardon, JLM, Máximo Êxito.
    - Cartões do topo: para a gestão, **"A repassar (não pago)"** soma tudo que ainda não foi repassado (pendente **+** ag. pagamento) e **"Ag. pagamento"** mostra quanto já está programado. No atendimento os dois cartões mostram quantidade, não valor.
    - **Cuidado com o filtro:** "Pendentes" mostra só o que **ainda não foi separado**; o que está programado aparece em "Ag. pagamento". O cartão de valor, ao contrário, soma os dois — é o total que o escritório ainda deve repassar.
    - O **Financeiro** continua contando **só o que está PAGO** — separar para pagamento não entra no financeiro.
+   - **Também dá para trocar o status dentro da edição do lançamento** (§4.11). Na gestão, as três opções; no atendimento, só PENDENTE e AG. PAGAMENTO.
+   - Clicar em **"Pagos"** (gestão) **abre direto o Financeiro**, mantendo os filtros que já estavam aplicados. Sair de "Pagos" volta para "Por lançamento".
+
+11. **Status na edição, previsão de pagamento, Detalhes/OBS, anexos e saldo devedor** (NOVO em 30/08/2026) — ver §4.1 a §4.5 abaixo.
+
+### 4.1 Status dentro da edição
+Campo **Status** no formulário de edição. Gestão vê PENDENTE / AG. PAGAMENTO / PAGO; atendimento vê só PENDENTE / AG. PAGAMENTO. Se o lançamento **já está PAGO**, o atendimento vê o status como texto fixo e o formulário **não envia** nada de pagamento — se enviasse, o banco recusaria e daria erro na cara do usuário.
+
+### 4.2 Previsão de pagamento
+Campo de data no formulário. Preenchido sozinho pelo banco ao virar AG. PAGAMENTO (regra do dia 20 útil, §3.1). **A gestão pode trocar na mão; o atendimento vê o campo desabilitado.** A previsão também aparece na lista (`prev. 18/09/2026`, embaixo do status) e na ficha de detalhes.
+
+### 4.3 Detalhes / OBS (ícone de olho)
+Botão **👁 Detalhes / OBS** em **todas as linhas, nos dois perfis** — antes o atendimento tinha um ícone parecido com o de Editar e as pessoas confundiam. Abre uma ficha com todos os dados do lançamento, a observação (editável) e um atalho para os anexos e para o histórico.
+Na **visão Por cliente** há o mesmo botão, mas para o **cliente inteiro**: observação geral, marcação **C.P. do cliente**, resumo de valores (repasses em aberto, saldo devedor e líquido), lista dos processos e todos os anexos.
+O ícone **$** (financeiro e baixa) continua existindo, **só na gestão**, separado do olho.
+
+### 4.4 Anexos (ícone de clipe)
+Botão de **clipe** com o número de arquivos: na linha do lançamento, na visão por cliente, na baixa de pagamento, na tabela do Financeiro e dentro do recibo ("Anexar recibo assinado").
+- Envia qualquer arquivo até **20 MB**, classificado como **Comprovante**, **Recibo assinado** ou **Documento**.
+- Anexo de um processo aparece **no processo e na ficha do cliente**; anexo geral do cliente aparece **nos dois lugares também**.
+- **O atendimento anexa, vê e baixa** — inclusive comprovantes de pagamento, mesmo sem ter acesso ao Financeiro.
+- **Excluir:** a gestão apaga qualquer um; as demais pessoas só o que elas mesmas enviaram.
+
+### 4.5 Saldo devedor
+No **Novo lançamento**, o primeiro campo é **Tipo de lançamento**: *Repasse ao cliente* ou *Saldo devedor*. Escolhendo Saldo devedor aparece o **tipo**: Custas, Má-Fé, Réu, Indenização, Escritório, Estado.
+- Os dois aparecem **separados** na lista, com etiqueta marrom no saldo devedor.
+- Na **ficha do cliente** o valor sai **abatido**: repasse de R$ 3.000 com custa de R$ 500 mostra **R$ 2.500**, com a conta escrita embaixo.
+- **Não entra no Financeiro** (decisão de 30/08/2026: o Financeiro é o dinheiro que saiu para o cliente) e **não entra no recibo de quitação**.
+- Nos cartões do topo: **"A repassar (líquido)"** já é repasses − devedores, e um cartão **"Saldo devedor"** aparece quando existe algum.
 5. **Financeiro** (só gestão) — filtro por período pela **data de pagamento** (+ atalhos Este mês / Mês passado / Este ano / Todo o período), total pago, quantidade, clientes, valor médio, total por grupo, tabela e CSV com linha de total. Avisa quando há pago sem data.
 6. **Painel de Usuários** (só gestão) — botão **"Usuários"** no topo. Lista todos (nome, e-mail, perfil colorido) e permite **criar**, **editar** (nome, perfil, senha opcional) e **excluir**. No atendimento o botão fica escondido.
 7. **Modo claro/escuro** — botão no topo, salvo em localStorage por pessoa.
@@ -164,17 +229,17 @@ Grupos: Max, Mariah, Jezieli, Yunes, Kaled, Nardon, JLM, Máximo Êxito.
   - É **arquivo separado, não base64** — de propósito: não engorda os HTML e é o primeiro passo da pendência 1 do §8.
   - O `favicon.png` foi gerado a partir do próprio base64 do emblema que já estava dentro do `index.html`, então é exatamente a mesma imagem.
   - Se um dia o arquivo sumir do repositório, o navegador volta a mostrar o ícone genérico (aquele globo) — nada quebra, só o ícone.
-- **Subtítulos:** "Gestão - Canaverde & Aguiar Advogados" / "Atendimento - Canaverde & Aguiar Advogados".
+- **Nome e subtítulo (30/08/2026):** título **DANF**, subtítulo **Controle de Repasses**, e uma etiqueta ao lado do nome com **GESTÃO** ou **ATENDIMENTO**. A etiqueta existe porque o subtítulo ficou igual nos dois sistemas e sem ela ninguém saberia em qual está. **É essa etiqueta que o `transform.py` troca** (antes era o subtítulo).
 - Cores: `--azul:#1a3a5c`, `--azul2:#2d6a9f`, `--azul-cl:#eaf2fa`. AG. PAGAMENTO usa `--agp-bg` / `--agp-borda`. Tema escuro via `[data-theme="dark"]` sobre variáveis CSS.
 
 ---
 
-## 7. Estrutura técnica dos HTML (~198 KB cada, 1240 linhas)
+## 7. Estrutura técnica dos HTML (~225 KB cada, ~1450 linhas)
 
 Arquivo único: `<style>` (variáveis CSS + tema escuro) → HTML (header, stats, filtros, wrap, modais: editar, histórico, recibo, **usuários**, login) → `<script>`.
 
 Blocos do JS, na ordem:
-config Supabase (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `_normUrl()`) → `MODE`/`isGestao`/`TABLE` → utilitários (`norm`, `parseComp`, `mesesPend`, `tempoCls`, `esc`, `brl`, `parseBR`, `fmtBR`) → **status (`ehAg`, `stCls`, `stLabel`, `stNext`, `stBtn`)** → `loadData` → filtros → render (`renderStats`, `renderFlat`, `rowHTML`, `expHTML`, `renderCards`, `clRow`) → ações (`persist`, `toggleCp`, `togglePago`, `savePag`, `saveObs`, `delRec`) → modal (`openModal`, `saveModal`) → export (`doExportJSON`, `doExportCSV`) → `LOGO_B64`/`RODAPE_B64` → tema → extenso → auditoria (`openLog`) → financeiro (`renderFin`, `finPreset`, `exportFinCSV`) → recibo (`openRec`, `openRecCliente`, `buildRec`, `gerarRecibo`, `abrirRecibo`) → **usuários (`openSenhas`, `closeSenhas`, `renderUsuarios`, `formNovo`, `formEditar`, `mostrarForm`, `salvarUsuario`, `excluirUsuario`)** → login/init (`boot`, `doLogin`, `onLogged`, `canRefresh`, `doLogout`).
+config Supabase (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `_normUrl()`) → `MODE`/`isGestao`/`TABLE` → utilitários (`norm`, `parseComp`, `mesesPend`, `tempoCls`, `esc`, `brl`, `parseBR`, `fmtBR`) → **status (`ehAg`, `stCls`, `stLabel`, `stNext`, `stBtn`)** → **anexos / cliente / detalhes** → `loadData` → filtros → render (`renderStats`, `renderFlat`, `rowHTML`, `expHTML`, `renderCards`, `clRow`) → ações (`persist`, `toggleCp`, `togglePago`, `savePag`, `saveObs`, `delRec`) → modal (`openModal`, `saveModal`) → export (`doExportJSON`, `doExportCSV`) → `LOGO_B64`/`RODAPE_B64` → tema → extenso → auditoria (`openLog`) → financeiro (`renderFin`, `finPreset`, `exportFinCSV`) → recibo (`openRec`, `openRecCliente`, `buildRec`, `gerarRecibo`, `abrirRecibo`) → **usuários (`openSenhas`, `closeSenhas`, `renderUsuarios`, `formNovo`, `formEditar`, `mostrarForm`, `salvarUsuario`, `excluirUsuario`)** → login/init (`boot`, `doLogin`, `onLogged`, `canRefresh`, `doLogout`).
 
 **Pontos-chave de perfil no código:**
 - `const MODE` / `const isGestao` (linha ~372) — origem de tudo.
@@ -182,10 +247,25 @@ config Supabase (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `_normUrl()`) → `MODE`/`
 - `togglePago()` — trava por perfil logo na primeira linha; usa `stNext()` para girar o ciclo.
 - Bloco final `if(!isGestao){...}` — esconde `btnFin` e `btnSenhas`.
 
-**Pontos-chave do status de três estados (10/08/2026):**
+**Pontos-chave dos anexos, cliente e detalhes (30/08/2026):**
+- Bloco único logo antes de `/* ---------- dados (Supabase) ---------- */`. Guarda `ANEXOS`, `CLIENTES`, `CARDNN`, `MEU_EMAIL`, `MEU_NOME` e os ícones SVG (`SVG_OLHO`, `SVG_CLIPE`, `SVG_CIFRAO`, `SVG_BAIXAR`, `SVG_LIXO`, `SVG_ARQ`).
+- `loadData()` agora chama `loadAnexos()` e `loadClientes()` **antes** de renderizar. Quem mexer em `loadData` precisa manter essa ordem.
+- **`MEU_EMAIL` é obrigatório para anexar** — a policy do banco exige que `criado_por_email` seja o e-mail de quem está logado. Ele é buscado em `onLogged()` por `sb.rpc('meu_email')`. Se falhar, o botão avisa em vez de dar erro cru.
+- Anexos: `openAnex` → `renderAnexos` → `enviarAnexo` / `baixarAnexo` / `excluirAnexo`. O download monta um `<a>` temporário com a URL assinada (não usa `window.open`, que o bloqueador de pop-up derruba).
+- Detalhes: `openDet` / `openDetCliente` → `renderDet` → `renderDetLanc` / `renderDetCliente` → `salvarDet`. `renderDetCliente` depende de `CARDMAP`/`CARDNN`, que só existem depois de renderizar a visão *Por cliente* — e é só de lá que ela é aberta.
+- `#ovAnex` tem `z-index:140` para ficar **por cima** da ficha de detalhes; sem isso, abrir anexos de dentro dos detalhes desenharia o painel atrás.
+
+**Pontos-chave do saldo devedor:**
+- `ehDevedor(r)`, `valorAberto(r)` e `totaisCliente(list)` concentram a conta. `totaisCliente` devolve `{rep, dev, liq}`.
+- Quem consome: cartões do topo (`renderStats`), cartão do cliente (`renderCards`), ficha do cliente (`renderDetCliente`).
+- Quem **exclui** devedor de propósito: `finRows` (Financeiro), `openRec` e `openRecCliente` (recibo).
+
+**Pontos-chave do status de três estados:**
 - Mexer no ciclo, nos rótulos ou nas cores = mexer **só** em `ehAg` / `stCls` / `stLabel` / `stNext` / `stBtn`. Tudo o mais (tabela, cartões, CSV, recibo) consome essas funções.
 - Onde o status ainda aparece "cru": `applyFilters()` (filtro), `renderStats()` (cartões do topo), `renderCards()` (etiquetas do cliente), `savePag()` e `saveModal()` (gravação).
 - CSS: `.stbtn.agp`, `.bdg.agp`, `.sc.agp`, `tbody tr.agp`, `.cl-row.agp` e o bloco do riscado (`tbody tr.pago .cli, .cpf, .proc, .reu, .comp, .val, .obs-s`).
+- **C.P. tem dois níveis:** o do lançamento (`repasses.cp`, a caixinha da primeira coluna) e o do cliente (`clientes.cp`, na ficha do cliente). `ehCP(r)` junta os dois — é o que o filtro "Só C.P." e a contagem do topo usam. Quando o C.P. vem do cliente, aparece uma etiqueta ao lado do nome na lista.
+- **Código morto conhecido:** o ramo do atendimento em `expHTML()` e a função `saveObs()` não são mais alcançados — desde 30/08 a linha de expansão só é criada na gestão, e o atendimento salva observação pela ficha de Detalhes / OBS. Ficaram no arquivo de propósito, para não mexer no que não precisa.
 
 **Os dois arquivos são gêmeos** — mudam só `<title>`, o subtítulo (2×) e `const MODE`.
 **Basta trabalhar no `index.html`: o `atendimento.html` sai do `transform.py`.**
@@ -205,6 +285,10 @@ config Supabase (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `_normUrl()`) → `MODE`/`
 4. Backup automático: só no Supabase Pro (US$ 25/mês). Hoje o backup é manual pelo botão. Considerar rotina de backup agendada.
 5. Avaliar remover a função legada `admin_definir_senha` (não é mais usada pela tela).
 6. Permitir troca de e-mail de usuário (hoje exige excluir + recriar).
+7. **Espaço do Storage:** o plano grátis do Supabase dá **1 GB** para anexos. Com comprovante em PDF (~200 KB) dá muito arquivo, mas foto de documento pesa bem mais. Vale olhar o consumo daqui a alguns meses — o painel do Supabase mostra em *Storage*.
+8. **Anexo não entra no backup do botão.** O JSON baixa os lançamentos, não os arquivos. Se quiser backup dos anexos, precisa de uma rotina à parte.
+9. **Feriado forense e ponto facultativo** não entram no cálculo da previsão (ver §3.1). Se atrapalhar na prática, trocar `eh_feriado_br` por uma tabela editável.
+10. Limpar o código morto do `expHTML()` (ramo do atendimento) e o `saveObs()`.
 
 ---
 
@@ -256,6 +340,12 @@ rollback;
 - **Foi preciso criar `<span class="comp">` e `<span class="obs-s">`** porque competência e observação eram texto solto dentro do `<td>` — texto solto não tem como receber estilo próprio.
 - **`create or replace view` só acrescenta coluna no fim** e **apaga as opções da view se não forem repetidas** — por isso a `repasses_atendimento` é recriada sempre com `with (security_invoker = off)` explícito. As permissões (`grant`) sobrevivem, essas não precisam ser refeitas.
 - **Ordem dos triggers é alfabética pelo nome.** `trg_normaliza_status` roda depois de `trg_bloqueia_pagamento` de propósito: primeiro barra quem não pode, depois arruma o dado.
+- **Formulário que envia campo travado dá erro na cara do usuário.** Quando o atendimento edita um lançamento **já pago**, a tela não pode mandar `pago`/`valor_pago`/`previsao_pagamento` — nem com o mesmo valor de antes, porque o trigger compara e recusa. Por isso o `select` de status **some** nesse caso, em vez de aparecer desabilitado.
+- **Data no banco é UTC.** A previsão usa `(now() at time zone 'America/Sao_Paulo')::date`; sem isso, das 21h em diante o banco já estaria no dia seguinte e a regra do "até o dia 15" erraria na virada do mês.
+- **`create or replace view` não deixa apagar nem reordenar coluna**, só acrescentar no fim. Por isso `ag_pagamento`, `natureza`, `tipo_devedor` e `previsao_pagamento` estão no fim da `repasses_atendimento`, fora da ordem da tabela. É normal.
+- **Bloqueador de pop-up derruba `window.open` depois de um `await`.** O download de anexo monta um `<a target="_blank">` temporário e clica nele — foi o único jeito confiável.
+- **Bucket privado exige URL assinada.** `sb.storage.from('anexos').createSignedUrl(caminho, 120, {download: nome})`. Link direto não abre, e é isso que se quer: documento de cliente não fica público.
+- **Temp table em teste com `set local role authenticated`** precisa de `grant all on _res to authenticated`, senão o teste falha com "permission denied for table _res" e parece que a policy é que quebrou.
 
 ---
 
