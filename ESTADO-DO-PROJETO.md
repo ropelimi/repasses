@@ -213,7 +213,33 @@ Aparece na coluna Valor da lista, na visão *Por cliente* e na ficha de Detalhes
 
 **O desconto é aplicado uma vez só.** Se o cliente tem vários lançamentos separados, `calcAbatimentos()` distribui o saldo devedor do primeiro para o último (ordenando pela previsão e depois pelo id), até acabar — nunca descontando a mesma dívida duas vezes. A conta usa **todos** os lançamentos, não só os que estão passando pelo filtro da tela; senão filtrar por "Ag. pagamento" esconderia o devedor e o desconto sumiria.
 
+Onde mais o líquido aparece:
+- **Cartão do cliente** (visão *Por cliente*) e **ficha do cliente** — com a conta escrita embaixo.
+- **Baixa de pagamento** (o botão **$**) — uma tarja azul "A pagar: R$ 3.300,00" e o campo **Valor pago já preenchido com o líquido**, porque é esse o dinheiro que sai. Continua editável para pagamento parcial.
+- Marcar PAGO pelo botão de status ou pelo formulário também grava o líquido.
+
+**O desconto vale para qualquer repasse em aberto**, não só os que estão em AG. PAGAMENTO — mas a ordem de aplicação é: primeiro os separados para pagamento, depois os pendentes (por previsão e id).
+
+**A conta do cliente usa TODOS os lançamentos dele, nunca só os filtrados.** Foi um bug real em 30/08/2026: com o filtro "Ag. pagamento" ligado, o saldo devedor saía da lista e o cartão mostrava R$ 3.750,00 em vez de R$ 3.300,00. Vale para `renderCards`, `renderDetCliente` e `calcAbatimentos` — todos passam por `todosDoCliente(nome_norm)`.
+
 Só a gestão vê esses valores (o atendimento não vê dinheiro).
+
+### 4.7 Sugestões ao digitar no cadastro (NOVO em 30/08/2026)
+Para não cadastrar o mesmo cliente com nomes ou CPFs diferentes — erro de digitação é o problema nº 1 de consistência aqui.
+
+Campos com sugestão: **Nome do cliente**, **CPF**, **Nº do processo** e **Réu**.
+
+| Você digita | O sistema mostra | Clicando, preenche |
+|---|---|---|
+| 2+ letras do nome | clientes já cadastrados, com CPF e quantos lançamentos | nome **e** CPF |
+| 3+ números no CPF | o mesmo, achando pelo CPF | nome **e** CPF |
+| 2+ letras do réu | réus já cadastrados | réu |
+| 3+ números ou letras do processo | processos já cadastrados, com o cliente | processo, nome, CPF, réu **e** grupo |
+
+- Funciona com **seta para cima/baixo + Enter**, além do clique. **Esc** fecha a lista (e só depois fecha o formulário).
+- **Ignora acento e pontuação:** digitar "sara basilio" acha "SARA BASÍLIO"; digitar "12345678900" acha "123.456.789-00".
+- Quando o mesmo dado já existe escrito de formas diferentes, **as variantes são agrupadas numa sugestão só** e o sistema oferece a **grafia mais usada**; havendo empate, a mais completa (com acento e com pontuação). É a função `acMelhor()` com o critério `acRiqueza()`.
+- O contador de lançamentos ajuda a identificar qual é a grafia "oficial" do cliente.
 5. **Financeiro** (só gestão) — filtro por período pela **data de pagamento** (+ atalhos Este mês / Mês passado / Este ano / Todo o período), total pago, quantidade, clientes, valor médio, total por grupo, tabela e CSV com linha de total. Avisa quando há pago sem data.
 6. **Painel de Usuários** (só gestão) — botão **"Usuários"** no topo. Lista todos (nome, e-mail, perfil colorido) e permite **criar**, **editar** (nome, perfil, senha opcional) e **excluir**. No atendimento o botão fica escondido.
 7. **Modo claro/escuro** — botão no topo, salvo em localStorage por pessoa.
@@ -355,6 +381,7 @@ rollback;
 - **Foi preciso criar `<span class="comp">` e `<span class="obs-s">`** porque competência e observação eram texto solto dentro do `<td>` — texto solto não tem como receber estilo próprio.
 - **`create or replace view` só acrescenta coluna no fim** e **apaga as opções da view se não forem repetidas** — por isso a `repasses_atendimento` é recriada sempre com `with (security_invoker = off)` explícito. As permissões (`grant`) sobrevivem, essas não precisam ser refeitas.
 - **`set_config('request.jwt.claims', ..., true)` vale até o fim da transação**, não até o fim do bloco `DO`. Num teste com `rollback`, se você simular o atendimento dentro do `DO` e depois rodar um `update` de migração fora dele, esse update roda **como se fosse o atendimento** e é barrado pela trava. Zerar com `perform set_config('request.jwt.claims', null, true)` antes de sair.
+- **Fechar a lista de sugestão no `blur` fecha a lista errada.** Ao pular do Réu para o Processo, o `blur` do Réu dispara um fechamento atrasado que apagava a lista que o Processo acabou de abrir — e o clique não preenchia nada. Por isso `acFechaDepois()` confere antes se o foco foi para outro campo com sugestão, e nesse caso não fecha.
 - **Ordem dos triggers é alfabética pelo nome.** `trg_normaliza_status` roda depois de `trg_bloqueia_pagamento` de propósito: primeiro barra quem não pode, depois arruma o dado.
 - **Formulário que envia campo travado dá erro na cara do usuário.** Quando o atendimento edita um lançamento **já pago**, a tela não pode mandar `pago`/`valor_pago`/`previsao_pagamento` — nem com o mesmo valor de antes, porque o trigger compara e recusa. Por isso o `select` de status **some** nesse caso, em vez de aparecer desabilitado.
 - **Data no banco é UTC.** A previsão usa `(now() at time zone 'America/Sao_Paulo')::date`; sem isso, das 21h em diante o banco já estaria no dia seguinte e a regra do "até o dia 15" erraria na virada do mês.
