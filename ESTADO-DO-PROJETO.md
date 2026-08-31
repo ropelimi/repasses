@@ -69,14 +69,18 @@ Grupos: Max, Mariah, Jezieli, Yunes, Kaled, Nardon, JLM, Máximo Êxito.
 
 ### Segurança de valores (atendimento não vê dinheiro)
 - **RLS na `repasses`:** policy `repasses_gestao` — só perfil `gestao` acessa a tabela (que tem valores).
-- **View `repasses_atendimento`** (`security_invoker = off`) — **não expõe `valor_num` nem `valor_pago`**. É por ela que o atendimento lê e grava. Inclui também `ag_pagamento`, `previsao_pagamento`, `natureza` e `tipo_devedor` — são status, não dinheiro.
+- **View `repasses_atendimento`** (`security_invoker = off`) — é por ela que o atendimento lê e grava. Inclui `ag_pagamento`, `previsao_pagamento`, `natureza` e `tipo_devedor` (são status, não dinheiro).
+  - **Nunca expõe `valor_pago`.**
+  - **`valor_num` só do saldo devedor** (30/08/2026, a pedido): a coluna sai como `case when natureza = 'devedor' then valor_num else null end`. O atendimento vê quanto o cliente deve — o que ajuda a identificar e conversar com ele — e o repasse continua invisível.
+  - Como essa coluna é **calculada**, o Postgres a torna **não atualizável**: o atendimento lê mas não consegue gravar valor nem por chamada direta. As demais colunas continuam graváveis normalmente.
 - **Função `recibo_dados(bigint[])`** (security definer) — entrega o valor só dos lançamentos escolhidos, para o atendimento gerar recibo. **Está concedida (`granted`).**
   Para bloquear: `revoke execute on function public.recibo_dados(bigint[]) from authenticated;`
 
 ### Segurança de pagamento (3ª versão, 30/08/2026)
 - **Trigger `trg_bloqueia_pagamento`** (BEFORE INSERT OR UPDATE em `repasses`) → função `bloqueia_pagamento_nao_gestao()`.
 - Impede que **qualquer usuário logado que não seja `gestao`** altere `pago`, `data_pagamento`, `valor_pago` e **`previsao_pagamento`** — pela tela, pela view ou por chamada direta à API.
-- **`ag_pagamento` saiu da trava em 30/08/2026, a pedido:** o atendimento **pode** mover um lançamento entre PENDENTE e AG. PAGAMENTO (pela tela de edição). O que ele nunca faz é marcar PAGO nem mexer em valores ou na data prevista.
+- **`ag_pagamento` fica FORA da trava, a pedido:** o atendimento **pode** mover um lançamento entre PENDENTE e AG. PAGAMENTO (pela tela de edição). O que ele nunca faz é marcar PAGO nem mexer em valores ou na data prevista.
+  > ⚠️ **Regressão já cometida uma vez.** Em 30/08/2026, ao reescrever a função inteira na migração do saldo devedor, a trava de `ag_pagamento` voltou por engano e o atendimento ficou sem conseguir mudar o status. Foi corrigida no mesmo dia. **Ao mexer nesta função, confira sempre se `ag_pagamento` continua fora da lista de bloqueados** — a linha existe só como comentário no código, é fácil perder.
 - `auth.uid()` nulo (service_role / migrações) **passa livre**, de propósito.
 - A restrição na tela é apenas cosmética; **a trava real é esta**.
 
@@ -408,12 +412,14 @@ rollback;
 - **Ordem dos triggers é alfabética pelo nome.** `trg_normaliza_status` roda depois de `trg_bloqueia_pagamento` de propósito: primeiro barra quem não pode, depois arruma o dado.
 - **Formulário que envia campo travado dá erro na cara do usuário.** Quando o atendimento edita um lançamento **já pago**, a tela não pode mandar `pago`/`valor_pago`/`previsao_pagamento` — nem com o mesmo valor de antes, porque o trigger compara e recusa. Por isso o `select` de status **some** nesse caso, em vez de aparecer desabilitado.
 - **Data no banco é UTC.** A previsão usa `(now() at time zone 'America/Sao_Paulo')::date`; sem isso, das 21h em diante o banco já estaria no dia seguinte e a regra do "até o dia 15" erraria na virada do mês.
+- **Recibo do cliente sai com o saldo devedor descontado** (30/08/2026). O valor final e o extenso já vêm líquidos. Uma caixinha no formulário (`rc_abate`, marcada por padrão) permite desmarcar — necessário quando o mesmo saldo devedor já foi abatido em outro recibo, já que o desconto é aplicado por recibo e não há controle de "já usado". Funções: `devedorDoCliente()`, `recBruto()`, `recDesconto()`, `recLiquido()`.
 - **`create or replace view` não deixa apagar nem reordenar coluna**, só acrescentar no fim. Por isso `ag_pagamento`, `natureza`, `tipo_devedor` e `previsao_pagamento` estão no fim da `repasses_atendimento`, fora da ordem da tabela. É normal.
 - **Bloqueador de pop-up derruba `window.open` depois de um `await`.** O download de anexo monta um `<a target="_blank">` temporário e clica nele — foi o único jeito confiável.
 - **O `sb.storage` do supabase-js NÃO mandava o token de quem está logado** (30/08/2026). As chamadas de banco (`/rest/v1/...`) iam com o usuário; as de arquivo (`/storage/v1/...`) iam como visitante anônimo, e o Storage recusava com *"new row violates row-level security policy"* — que parece erro de permissão mal configurada, mas não é. **Diagnóstico:** comparar as duas no log (`edge_logs`, campo `request.sb.auth_user`) — numa aparece o usuário, na outra vem vazio. **Solução adotada:** falar com a API de arquivos por `fetch`, montando os cabeçalhos na mão (`apikey` + `Authorization: Bearer <access_token>`), em `enviarAnexo`, `baixarAnexo` e `excluirAnexo`. Não depende da versão da biblioteca.
 - **Bucket privado exige URL assinada.** `POST /storage/v1/object/sign/anexos/<caminho>` com `{"expiresIn":120}` devolve `{"signedURL":"/object/sign/..."}` — a URL final é `_URL + '/storage/v1' + signedURL`, mais `&download=<nome>` para baixar com o nome certo. Link direto não abre, e é isso que se quer: documento de cliente não fica público.
 - **Sessão vencida fazia o sistema insistir para sempre.** O `loadData` roda de 30 em 30 segundos; com o token vencido eram 73 recusas seguidas no log de 30/08/2026. Agora `sessaoCaiu()` reconhece o 401 e `sessaoExpirou()` para o relógio e traz a tela de login de volta, em vez de piscar erro vermelho a cada meio minuto.
 - **Temp table em teste com `set local role authenticated`** precisa de `grant all on _res to authenticated`, senão o teste falha com "permission denied for table _res" e parece que a policy é que quebrou.
+- **No teste como atendimento, leia pela view, não pela tabela.** Um `select ... from public.repasses` rodando com `set local role authenticated` e um usuário de atendimento devolve **zero linhas** (a policy `repasses_gestao` barra), e a variável fica nula — o teste acusa falha onde o sistema está certo. Use `public.repasses_atendimento`.
 
 ---
 
