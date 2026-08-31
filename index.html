@@ -28,7 +28,7 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:var(--cinza);color:var(-
 button{font-family:inherit}
 
 /* HEADER */
-header{background:linear-gradient(135deg,#16314e,#2d6a9f);color:#fff;padding:14px 22px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;box-shadow:0 3px 10px rgba(0,0,0,.18);position:sticky;top:0;z-index:40}
+header{background:linear-gradient(135deg,#16314e,#2d6a9f);color:#fff;padding:14px 14px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;box-shadow:0 3px 10px rgba(0,0,0,.18);position:sticky;top:0;z-index:40}
 .brand{display:flex;align-items:center;gap:11px}
 .brand .mark{width:34px;height:34px;border-radius:8px;border:1px solid rgba(255,255,255,.3);object-fit:cover;display:block;flex:none}
 .brand h1{font-size:16px;font-weight:700;line-height:1.15}
@@ -41,7 +41,7 @@ header{background:linear-gradient(135deg,#16314e,#2d6a9f);color:#fff;padding:14p
 .hbtn svg{width:14px;height:14px}
 
 /* STATS */
-.stats{display:flex;gap:10px;padding:13px 22px;background:var(--surface);border-bottom:1px solid var(--borda);flex-wrap:wrap;overflow-x:auto}
+.stats{display:flex;gap:10px;padding:13px 14px;background:var(--surface);border-bottom:1px solid var(--borda);flex-wrap:wrap;overflow-x:auto}
 .sc{display:flex;flex-direction:column;justify-content:center;background:var(--cinza2);border:1px solid var(--borda);border-radius:10px;padding:9px 15px;min-width:120px;font-family:inherit;text-align:left;cursor:pointer;transition:border-color .12s,background .12s}
 .sc:hover{background:var(--hover2);border-color:var(--azul2)}
 .sc.on{border-color:var(--azul2);box-shadow:inset 0 0 0 1px var(--azul2);background:var(--surface)}
@@ -54,7 +54,7 @@ header{background:linear-gradient(135deg,#16314e,#2d6a9f);color:#fff;padding:14p
 .sc.cp .sv{color:var(--vermelho)}
 
 /* CONTROLS */
-.controls{background:var(--surface);border-bottom:1px solid var(--borda);padding:11px 22px;display:flex;flex-direction:column;gap:9px;position:sticky;top:62px;z-index:30}
+.controls{background:var(--surface);border-bottom:1px solid var(--borda);padding:11px 14px;display:flex;flex-direction:column;gap:9px;position:sticky;top:62px;z-index:30}
 .crow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .clabel{font-size:10px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}
 .search{display:flex;align-items:center;background:var(--cinza2);border:1px solid var(--borda);border-radius:9px;padding:7px 12px;gap:7px;flex:1;min-width:210px;max-width:380px}
@@ -81,12 +81,12 @@ select{border:1px solid var(--borda);border-radius:8px;padding:7px 9px;font-size
 
 /* TABLE */
 /* a tabela rola dentro da propria caixa: a pagina nunca sai do enquadro */
-.wrap{padding:14px 22px 60px;overflow-x:auto}
+.wrap{padding:14px 14px 60px;overflow-x:auto}
 table{width:100%;border-collapse:collapse;background:var(--surface);border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05)}
-thead th{background:var(--thead-bg);color:var(--txt3);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;text-align:left;padding:11px 8px;border-bottom:2px solid var(--borda);white-space:nowrap;cursor:pointer;user-select:none}
+thead th{background:var(--thead-bg);color:var(--txt3);font-size:10px;text-transform:uppercase;letter-spacing:.2px;font-weight:700;text-align:left;padding:11px 5px;border-bottom:2px solid var(--borda);white-space:nowrap;cursor:pointer;user-select:none}
 thead th.nosort{cursor:default}
 thead th .arr{opacity:.35;font-size:9px;margin-left:2px}
-tbody td{padding:10px 8px;border-bottom:1px solid var(--borda);vertical-align:middle;font-size:13px}
+tbody td{padding:10px 5px;border-bottom:1px solid var(--borda);vertical-align:middle;font-size:13px}
 tbody tr:hover{background:var(--hover)}
 tbody tr.pago{background:var(--pago-bg)}
 tbody tr.pago:hover{background:var(--pago-hover)}
@@ -99,13 +99,13 @@ tbody tr.pago .devval{text-decoration:line-through;text-decoration-thickness:1px
 tbody tr.pago .cli,tbody tr.pago .val{color:var(--txt2)}
 .cli{font-weight:600;color:var(--txt)}
 .cli .obsdot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--amarelo);margin-left:6px;vertical-align:middle}
-.cpf{font-size:12px;color:var(--txt3);white-space:nowrap}
-.proc{font-size:11.5px;color:var(--txt2);white-space:nowrap}
+.cpf{font-size:11.5px;color:var(--txt3);white-space:nowrap}
+.proc{font-size:11px;color:var(--txt2);white-space:nowrap}
 .reu{font-size:12px;color:var(--txt2)}
 .copy{border:none;background:transparent;cursor:pointer;color:var(--txt3);padding:2px;vertical-align:middle}
 .copy:hover{color:var(--azul2)}
 .copy svg{width:12px;height:12px}
-.gtag{display:inline-block;padding:2px 9px;border-radius:20px;font-size:10.5px;font-weight:700;white-space:nowrap}
+.gtag{display:inline-block;padding:2px 7px;border-radius:20px;font-size:10.5px;font-weight:700;white-space:nowrap}
 .g-max{background:var(--azul-cl);color:var(--azul)}
 .g-mariah{background:var(--rosa-bg);color:var(--rosa)}
 .g-jezieli{background:var(--roxo-bg);color:var(--roxo)}
@@ -140,7 +140,7 @@ tbody tr.pago .cli,tbody tr.pago .val{color:var(--txt2)}
 /* a conta embaixo pode quebrar linha: numa linha so, ela empurra a tabela */
 .liq small{display:block;font-weight:600;color:var(--txt3);font-size:9.5px;white-space:normal}
 .acts{display:flex;gap:2px;justify-content:flex-end;flex-wrap:nowrap}
-.ico{border:none;background:transparent;cursor:pointer;color:var(--txt3);padding:4px;border-radius:6px;flex:none}
+.ico{border:none;background:transparent;cursor:pointer;color:var(--txt3);padding:3px;border-radius:6px;flex:none}
 .ico:hover{background:var(--hover2);color:var(--azul2)}
 .ico.del:hover{color:var(--vermelho)}
 .ico svg{width:14px;height:14px}
@@ -207,7 +207,7 @@ tbody tr.pago .cli,tbody tr.pago .val{color:var(--txt2)}
 .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
 .toast.ok{background:#1f8a4c}.toast.err{background:#c0392b}
 
-.count{padding:6px 22px;font-size:12px;color:var(--txt3);background:var(--surface);border-bottom:1px solid var(--borda)}
+.count{padding:6px 14px;font-size:12px;color:var(--txt3);background:var(--surface);border-bottom:1px solid var(--borda)}
 .count b{color:var(--azul)}
 
 @media(max-width:760px){
@@ -216,6 +216,7 @@ tbody tr.pago .cli,tbody tr.pago .val{color:var(--txt2)}
   table,tbody,tr,td{display:block;width:100%}
   tbody tr{border:1px solid var(--borda);border-radius:10px;margin-bottom:10px;padding:6px}
   tbody td{border:none;padding:6px 8px;display:flex;justify-content:space-between;gap:10px}
+  .ico{padding:5px}.ico svg{width:16px;height:16px}
   tbody td::before{content:attr(data-l);font-size:10px;font-weight:700;color:var(--txt3);text-transform:uppercase}
   tfoot,tfoot tr,tfoot td{display:block;width:100%}
   tfoot tr{border:1px solid var(--borda);border-radius:10px;margin-bottom:10px;padding:6px;background:var(--thead-bg)}
