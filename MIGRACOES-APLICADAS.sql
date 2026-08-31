@@ -619,3 +619,38 @@ end $function$;
 --   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
 --  where n.nspname='public' and p.proname='bloqueia_pagamento_nao_gestao';
 -- Esperado: false.
+
+
+-- =====================================================================
+-- MIGRAÇÃO APLICADA EM 31/08/2026
+-- saldo_devedor_quitado — dar um saldo devedor por quitado
+-- =====================================================================
+-- Testada com 6 cenários dentro de uma transação com rollback antes de
+-- ser aplicada de verdade, incluindo a guarda de regressão do ag_pagamento.
+--
+-- 23) alter table public.repasses
+--       add column if not exists devedor_quitado boolean not null default false;
+--
+-- 24) create index if not exists repasses_devedor_aberto_idx
+--       on public.repasses (nome_norm)
+--      where natureza = 'devedor' and devedor_quitado = false;
+--
+-- 25) normaliza_status_repasse(): um lançamento de natureza 'repasse'
+--     tem devedor_quitado zerado à força. Só saldo devedor pode ficar quitado.
+--
+-- 26) bloqueia_pagamento_nao_gestao(): devedor_quitado entra na lista de
+--     campos que só a gestão altera (INSERT e UPDATE).
+--     ⚠️ ag_pagamento continua FORA da lista, de propósito — ver migração 22.
+--     O código traz esse aviso como comentário dentro da própria função.
+--
+-- 27) repasses_atendimento: coluna devedor_quitado acrescentada no fim
+--     (o atendimento vê a situação do saldo, mas a trava impede que grave).
+--
+-- 28) registra_log(): devedor_quitado passa a ser auditado como os demais.
+--
+-- Conferência rápida (só lê):
+-- select table_name, column_name
+--   from information_schema.columns
+--  where column_name = 'devedor_quitado'
+--  order by table_name;
+-- Esperado: repasses e repasses_atendimento.

@@ -94,7 +94,8 @@ tbody tr.agp{background:var(--agp-bg)}
 tbody tr.agp:hover{background:var(--agp-hover)}
 /* Lançamento PAGO sai riscado (só o texto; botões e etiquetas continuam legíveis). */
 tbody tr.pago .cli,tbody tr.pago .cpf,tbody tr.pago .proc,tbody tr.pago .reu,
-tbody tr.pago .comp,tbody tr.pago .val,tbody tr.pago .obs-s{text-decoration:line-through;text-decoration-thickness:1px}
+tbody tr.pago .comp,tbody tr.pago .val,tbody tr.pago .obs-s,
+tbody tr.pago .devval{text-decoration:line-through;text-decoration-thickness:1px}
 tbody tr.pago .cli,tbody tr.pago .val{color:var(--txt2)}
 .cli{font-weight:600;color:var(--txt)}
 .cli .obsdot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--amarelo);margin-left:6px;vertical-align:middle}
@@ -128,6 +129,10 @@ tbody tr.pago .cli,tbody tr.pago .val{color:var(--txt2)}
 .stbtn.dev{background:var(--marrom-bg);color:var(--marrom);border-color:#e8cbb4}
 .devtag{display:inline-block;padding:2px 9px;border-radius:20px;font-size:10.5px;font-weight:700;white-space:nowrap;background:var(--marrom-bg);color:var(--marrom)}
 .devval{font-size:11.5px;font-weight:700;color:var(--marrom);white-space:nowrap;margin-top:3px}
+.stbtn.quit{background:var(--verde-bg);color:var(--verde);border-color:#bfe6cd}
+.stbtn.aberto{background:var(--cinza);color:var(--txt2);border-color:var(--borda)}
+[data-theme="dark"] .stbtn.quit{background:var(--verde-bg);color:var(--verde);border-color:#1f5133}
+[data-theme="dark"] .stbtn.aberto{background:var(--hover2);color:var(--txt2);border-color:var(--borda)}
 .prev{display:inline-block;font-size:11px;font-weight:700;color:var(--azul);white-space:nowrap}
 .liq{font-size:10.5px;font-weight:700;color:var(--azul2);white-space:nowrap;margin-top:2px}
 .apagar{font-size:13px;font-weight:700;color:var(--azul2);background:var(--azul-cl);border:1px solid var(--agp-borda);border-radius:9px;padding:8px 12px}
@@ -189,6 +194,8 @@ tbody tr.pago .cli,tbody tr.pago .val{color:var(--txt2)}
 .modal-b{padding:18px 20px;display:grid;grid-template-columns:1fr 1fr;gap:13px}
 .modal-b .full{grid-column:1/3}
 .modal-b .fld input,.modal-b .fld textarea,.modal-b .fld select{width:100%}
+/* caixinhas de marcar (C.P., Saldo quitado) nao podem esticar para 100% */
+.modal-b .fld input[type=checkbox]{width:18px;flex:none}
 .modal-f{padding:14px 20px;border-top:1px solid var(--borda);display:flex;justify-content:flex-end;gap:9px;position:sticky;bottom:0;background:var(--surface)}
 .btn{padding:9px 18px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1px solid var(--borda);background:var(--surface);color:var(--txt2)}
 .btn.primary{background:var(--azul2);color:#fff;border-color:var(--azul2)}
@@ -712,7 +719,19 @@ function stEstatico(r){return '<span class="stbtn '+stCls(r)+'" style="cursor:de
 function ehDevedor(r){return r&&r.natureza==='devedor';}
 /* C.P. vale se estiver marcado no lancamento OU no cliente inteiro. */
 function ehCP(r){return !!r.cp||!!cliInfo(r.nome_norm).cp;}
-function valorAberto(r){return r.pago?0:Number(r.valor_num||0);}
+/* Saldo devedor dado por quitado: para de abater do cliente, mas o
+   lancamento fica no historico. So a gestao marca (trava no banco). */
+function devQuitado(r){return !!(r&&r.devedor_quitado);}
+function devEmAberto(r){return ehDevedor(r)&&!devQuitado(r);}
+function quitBtn(r){
+  const q=devQuitado(r);
+  const cls=q?'quit':'aberto', txt=q?'QUITADO':'EM ABERTO';
+  return isGestao
+    ? '<button class="stbtn '+cls+'" onclick="toggleQuitado('+jid(r)+')" title="'
+        +(q?'Clique para reabrir este saldo devedor':'Clique para dar este saldo por quitado')+'">'+txt+'</button>'
+    : '<span class="stbtn '+cls+'" style="cursor:default" title="Somente a gestão dá o saldo por quitado">'+txt+'</span>';
+}
+function valorAberto(r){return (r.pago||devQuitado(r))?0:Number(r.valor_num||0);}
 /* Saldo a pagar de um lancamento em AG. PAGAMENTO: o valor dele menos o saldo
    devedor do cliente. Se o cliente tem mais de um lancamento separado, o
    desconto e aplicado UMA VEZ SO, do primeiro para o ultimo (pela previsao). */
@@ -723,7 +742,7 @@ function calcAbatimentos(recs){
   recs.forEach(r=>{(porCliente[r.nome_norm]=porCliente[r.nome_norm]||[]).push(r);});
   Object.keys(porCliente).forEach(nn=>{
     const list=porCliente[nn];
-    let devedor=list.filter(ehDevedor).reduce((s,r)=>s+Number(r.valor_num||0),0);
+    let devedor=list.filter(devEmAberto).reduce((s,r)=>s+Number(r.valor_num||0),0);
     if(devedor<=0)return;
     /* primeiro os que ja estao separados para pagamento, depois os pendentes:
        e nessa ordem que o dinheiro sai, e o desconto vale uma vez so. */
@@ -752,7 +771,7 @@ function abateHTML(r){
 /* Soma dos saldos devedores em aberto de um cliente. O atendimento tambem
    enxerga esse valor (a view do banco expoe valor_num so para devedor). */
 function devedorDoCliente(nn){
-  return getRecords().filter(r=>r.nome_norm===nn&&ehDevedor(r)&&!r.pago)
+  return getRecords().filter(r=>r.nome_norm===nn&&devEmAberto(r))
     .reduce((s,r)=>s+Number(r.valor_num||0),0);
 }
 function totaisCliente(list){
@@ -790,7 +809,7 @@ function renderDetLanc(){
     +di('CPF',esc(r.cpf||'—'))
     +di('Processo','<span class="mono">'+esc(r.processo||'—')+'</span>')
     +di('Réu',esc(r.reu||'—'))
-    +di('Grupo','<span class="gtag g-'+gcls(r.grupo)+'">'+esc(r.grupo||'—')+'</span>')
+    +di('ADV','<span class="gtag g-'+gcls(r.grupo)+'">'+esc(r.grupo||'—')+'</span>')
     +di('Competência',esc(r.competencia||'—'))
     +di('Tipo de lançamento',ehDevedor(r)
         ?'<span class="devtag">Saldo devedor'+(r.tipo_devedor?' · '+esc(r.tipo_devedor):'')+'</span>'
@@ -801,6 +820,9 @@ function renderDetLanc(){
     +((isGestao||(ehDevedor(r)&&r.valor_num!=null))
         ?di(ehDevedor(r)?'Valor devido':'Valor lançado',
             '<span class="val mono"'+(ehDevedor(r)?' style="color:var(--marrom)"':'')+'>'+brl(r.valor_num||0)+'</span>'):'')
+    +(ehDevedor(r)?di('Situação do saldo',
+        devQuitado(r)?'<span class="stbtn quit" style="cursor:default">QUITADO</span>'
+                     :'<span class="stbtn aberto" style="cursor:default">EM ABERTO</span>'):'')
     +(abate(r)?di('A pagar (já com o desconto)','<span class="val mono" style="color:var(--azul2)">'+brl(abate(r).liquido)
         +'</span><div class="hint">'+brl(abate(r).bruto)+' menos '+brl(abate(r).desconto)+' de saldo devedor deste cliente</div>'):'')
     +(r.pago&&isGestao?di('Valor pago','<span class="val mono" style="color:var(--verde)">'+brl(finValor(r))+'</span>'):'')
@@ -982,7 +1004,7 @@ function renderStats(all){
   if(isGestao){
     const vNum=r=>Number(r.valor_num||parseBR(r.valor)||0);
     const totalRep=naoPagos.reduce((s,r)=>s+vNum(r),0);
-    const totalDev=vis.filter(ehDevedor).reduce((s,r)=>s+vNum(r),0);
+    const totalDev=vis.filter(devEmAberto).reduce((s,r)=>s+vNum(r),0);
     /* o cartao de Ag. pagamento ja mostra o que sai de fato, com o desconto */
     const totalAgp=agp.reduce((s,r)=>{const a=abate(r);return s+(a?a.liquido:vNum(r));},0);
     html+=card('money','A repassar (líquido)',brl(totalRep-totalDev),
@@ -1007,8 +1029,11 @@ function renderStats(all){
       'toggleCP()',filters.cp,
       'Mostra só os Clientes Problema.');
   }else{
-    const totalDevAt=vis.filter(ehDevedor).reduce((s,r)=>s+Number(r.valor_num||0),0);
-    if(totalDevAt>0)html+=card('dev','Saldo devedor',brl(totalDevAt),
+    /* No atendimento o cartao mostra a QUANTIDADE de lancamentos, igual aos
+       vizinhos. O valor de cada saldo devedor continua visivel na lista, na
+       ficha e no cartao do cliente. */
+    const nDevAt=vis.filter(devEmAberto).length;
+    if(nDevAt>0)html+=card('dev','Saldo devedor',nDevAt,
       "cardStatus('devedor')",filters.status==='devedor','Mostra só os lançamentos de saldo devedor.');
     html+=card('','Lançamentos',vis.length,
       "cardStatus('todos')",filters.status==='todos','Limpa o filtro de status e mostra todos os lançamentos.');
@@ -1041,7 +1066,7 @@ const TIPOS_DEV=['Custas','Má-Fé','Réu','Indenização','Escritório','Estado
 function renderGroupChips(all){
   const cont=document.getElementById('grpChips');
   const counts={};all.forEach(r=>counts[r.grupo]=(counts[r.grupo]||0)+1);
-  let html='<span class="clabel">Grupos:</span>';
+  let html='<span class="clabel">ADV:</span>';
   GORDER.forEach(g=>{if(!counts[g])return;const on=filters.grupos.has(g);html+='<button class="chip '+gcls(g)+(on?' on':'')+'" onclick="toggleGrupo(\''+g.replace(/'/g,"\\'")+'\')">'+esc(g)+' <span class="ct">'+counts[g]+'</span></button>';});
   cont.innerHTML=html;
 }
@@ -1062,9 +1087,9 @@ function setSort(k){if(filters.sort.key===k)filters.sort.dir*=-1;else filters.so
 function renderFlat(recs){
   recs=sortRecs(recs);
   const cols=isGestao
-    ? ['C.P.','Cliente','CPF','Processo','Réu','Competência','Tempo pendente','Grupo','Valor','Status','']
-    : ['C.P.','Cliente','CPF','Processo','Réu','Competência','Grupo','Status','OBS',''];
-  const sortable={Cliente:'nome',CPF:'cpf',Réu:'reu',Competência:'comp','Tempo pendente':'meses',Grupo:'grupo',Valor:'valor'};
+    ? ['C.P.','Cliente','CPF','Processo','Réu','Competência','Tempo pendente','ADV','Valor','Status','']
+    : ['C.P.','Cliente','CPF','Processo','Réu','Competência','ADV','Status','OBS',''];
+  const sortable={Cliente:'nome',CPF:'cpf',Réu:'reu',Competência:'comp','Tempo pendente':'meses',ADV:'grupo',Valor:'valor'};
   let h='<table><thead><tr>';
   cols.forEach(c=>{const sk=sortable[c];h+='<th class="'+(sk?'':'nosort')+'"'+(sk?' onclick="setSort(\''+sk+'\')"':'')+'>'+c+(sk?' <span class="arr">▲▼</span>':'')+'</th>';});
   h+='</tr></thead><tbody>';
@@ -1095,7 +1120,7 @@ function rowHTML(r){
   if(isGestao){
     cells+='<td data-l="Tempo pendente"><span class="ag '+tempoCls(m)+'">'+tempoLabel(m)+'</span></td>';
   }
-  cells+='<td data-l="Grupo"><span class="gtag g-'+gcls(r.grupo)+'">'+esc(r.grupo)+'</span></td>';
+  cells+='<td data-l="ADV"><span class="gtag g-'+gcls(r.grupo)+'">'+esc(r.grupo)+'</span></td>';
   if(isGestao){
     cells+='<td data-l="Valor"><span class="val mono">'+brl(r.valor_num||parseBR(r.valor))+'</span>'+abateHTML(r)+'</td>';
   }
@@ -1104,6 +1129,7 @@ function rowHTML(r){
       ? '<span class="devtag">'+esc(r.tipo_devedor||'Saldo devedor')+'</span>'
         /* na gestao o valor ja aparece na coluna Valor; no atendimento, aqui */
         +((!isGestao&&r.valor_num!=null)?'<div class="devval">'+brl(r.valor_num)+'</div>':'')
+        +'<div style="margin-top:4px">'+quitBtn(r)+'</div>'
       : stt+((r.previsao_pagamento&&!r.pago)?'<div class="prev" title="Previsão de pagamento">prev. '+dataBR(r.previsao_pagamento)+'</div>':''))
     +'</td>';
   if(!isGestao){
@@ -1120,7 +1146,7 @@ function rowHTML(r){
     +'</div></td>';
   const ncol=cols_count();
   const exp=(isGestao&&!ehDevedor(r))?('<tr class="exprow" id="exp_'+rid(r)+'" style="display:none"><td class="exp" colspan="'+ncol+'">'+expHTML(r)+'</td></tr>'):'';
-  return '<tr class="'+(r.pago?'pago':(ehAg(r)?'agp':''))+'" id="row_'+rid(r)+'">'+cells+'</tr>'+exp;
+  return '<tr class="'+((r.pago||devQuitado(r))?'pago':(ehAg(r)?'agp':''))+'" id="row_'+rid(r)+'">'+cells+'</tr>'+exp;
 }
 function cols_count(){return isGestao?11:10;}
 
@@ -1162,7 +1188,7 @@ function renderCards(recs){
           pagos=list.filter(r=>!ehDevedor(r)&&r.pago).length;
     const cinfo=cliInfo(k);
     const anyCP=list.some(r=>r.cp)||!!cinfo.cp;
-    const nDev=list.filter(ehDevedor).length;
+    const nDev=list.filter(devEmAberto).length;
     const nAnx=anexosDoCliente(k).length;
     /* A conta do cliente usa TODOS os lancamentos dele, nao so os que passaram
        pelo filtro: senao, filtrar por "Ag. pagamento" esconderia o saldo
@@ -1208,12 +1234,12 @@ function clRow(r){
   let meta='<span class="gtag g-'+gcls(r.grupo)+'">'+esc(r.grupo)+'</span>'
     +'<span class="comp">'+esc(r.competencia)+'</span>'
     +((isGestao&&!ehDevedor(r))?'<span class="ag '+tempoCls(m)+'">'+tempoLabel(m)+'</span>':'')
-    +(ehDevedor(r)?'<span class="devtag">'+esc(r.tipo_devedor||'Saldo devedor')+'</span>':stBtn(r))
+    +(ehDevedor(r)?('<span class="devtag">'+esc(r.tipo_devedor||'Saldo devedor')+'</span>'+quitBtn(r)):stBtn(r))
     +((r.previsao_pagamento&&!r.pago&&!ehDevedor(r))?'<span class="prev">prev. '+dataBR(r.previsao_pagamento)+'</span>':'')
     +(ehCP(r)?'<span class="bdg cp">C.P.</span>':'')
     +'<button class="ico" onclick="openDet('+jid(r)+')" title="Detalhes / OBS">'+SVG_OLHO+'</button>'
     +clipBtn(anexosDoLanc(r.id).length,'openAnex(\''+'lanc'+'\','+jid(r)+')');
-  return '<div class="cl-row'+(r.pago?' pago':(ehAg(r)?' agp':''))+'">'
+  return '<div class="cl-row'+((r.pago||devQuitado(r))?' pago':(ehAg(r)?' agp':''))+'">'
     +'<div class="cl-top"><span class="proc mono">'+esc(r.processo)+' <button class="copy" onclick="copyTxt(\''+r.processo+'\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></span>'+right+'</div>'
     +'<div class="cl-meta"><span class="reu">Réu: '+esc(r.reu||'—')+'</span>'+meta+'</div>'
     +(r.obs?'<div class="cl-meta" style="color:#b5580a">Obs: '+esc(r.obs)+'</div>':'')
@@ -1229,6 +1255,17 @@ async function persist(id,patch){
   const {error}=await sb.from(TABLE).update(patch).eq('id',id);
   if(error){toast('Erro ao salvar: '+error.message,'err');await loadData();return false;}
   return true;
+}
+async function toggleQuitado(id){
+  if(!isGestao){toast('Somente a gestao pode dar o saldo por quitado','err');return;}
+  const r=findRec(id); if(!r||!ehDevedor(r))return;
+  const novo=!devQuitado(r);
+  if(novo&&!confirm('Dar este saldo devedor por QUITADO?\n\nEle para de abater do cliente, mas continua no histórico.'))return;
+  r.devedor_quitado=novo; render();
+  if(await persist(id,{devedor_quitado:novo})){
+    toast(novo?'Saldo dado por quitado':'Saldo devedor reaberto','ok');
+    await loadData();
+  }
 }
 async function toggleCp(id){const r=findRec(id);if(!r)return;r.cp=!r.cp;render();await persist(id,{cp:r.cp});}
 async function togglePago(id){
@@ -1464,11 +1501,18 @@ function openModal(id){
     +'<div class="fld full" id="m_tdWrap" style="display:'+(r.natureza==='devedor'?'flex':'none')+'">'
       +'<label>Tipo do saldo devedor</label><select id="m_td">'+tdOpts+'</select>'
       +'<div class="hint">Saldo devedor abate do valor consolidado do cliente e não entra no Financeiro.</div></div>'
+    +'<div class="fld full" id="m_quitWrap" style="display:'+(r.natureza==='devedor'?'flex':'none')+';flex-direction:row;align-items:center;gap:8px">'
+      +(isGestao
+        ? '<input type="checkbox" id="m_quit" class="cpbox" '+(r.devedor_quitado?'checked':'')+'>'
+          +'<label style="text-transform:none;font-size:13px;color:#444">Saldo quitado — para de abater do cliente</label>'
+        : '<span class="hint" style="margin:0">'+(r.devedor_quitado?'Este saldo já está quitado.':'Saldo em aberto.')
+          +' Somente a gestão altera.</span>')
+    +'</div>'
     +fldAC('full','Nome completo do cliente','nome',r.nome||'','Digite 2 letras e escolha o cliente já cadastrado')
     +fldAC('','CPF','cpf',r.cpf||'','Digite 3 números para achar o cliente pelo CPF')
     +fldAC('','Nº do processo','processo',r.processo||'','')
     +fldAC('full','Réu','reu',r.reu||'','')
-    +'<div class="fld"><label>Grupo / Advogado</label><select id="m_grupo">'+grpOpts+'</select></div>'
+    +'<div class="fld"><label>ADV (advogado responsável)</label><select id="m_grupo">'+grpOpts+'</select></div>'
     +compFieldM(r)
     +(isGestao?fldM('','Valor (R$)','valor', r.valor_num!=null?fmtBR(r.valor_num):''):'')
     +statusFieldM(r)
@@ -1499,6 +1543,8 @@ function natChanged(){
     const el=document.getElementById(id);
     if(el)el.style.display=dev?'none':'flex';
   });
+  const q=document.getElementById('m_quitWrap');
+  if(q)q.style.display=dev?'flex':'none';
 }
 function statusFieldM(r){
   const atual=r.pago?'pago':(r.ag_pagamento?'agp':'pendente');
@@ -1557,8 +1603,12 @@ async function saveModal(){
   if(nat==='devedor'){
     /* Saldo devedor nao guarda status. O atendimento NAO manda esses campos:
        a trava do banco compara campo a campo e recusaria a mudanca. */
-    if(isGestao){ rec.pago=false; rec.ag_pagamento=false; rec.previsao_pagamento=null; }
-  }
+    if(isGestao){
+      rec.pago=false; rec.ag_pagamento=false; rec.previsao_pagamento=null;
+      const q=document.getElementById('m_quit');
+      rec.devedor_quitado=!!(q&&q.checked);
+    }
+  }else if(isGestao){ rec.devedor_quitado=false; }
   if(stEl){
     const st=stEl.value;
     if(st==='pago'&&isGestao){
@@ -1596,7 +1646,7 @@ function doExportJSON(){
 function doExportCSV(){
   if(filters.view==='fin'){return exportFinCSV();}
   const recs=applyFilters(getRecords());
-  let head=['Cliente','CPF','Processo','Reu','Grupo','Competencia','Tipo de lancamento'];
+  let head=['Cliente','CPF','Processo','Reu','ADV','Competencia','Tipo de lancamento'];
   if(isGestao){head=head.concat(['Tempo pendente','Valor','Valor pago','Data pagamento']);}
   else{head=head.concat(['Valor do saldo devedor']);}
   head=head.concat(['Status','Previsao de pagamento','C.P.','Observacao']);
@@ -1606,7 +1656,7 @@ function doExportCSV(){
              ehDevedor(r)?('Saldo devedor'+(r.tipo_devedor?' - '+r.tipo_devedor:'')):'Repasse'];
     if(isGestao){row=row.concat([tempoLabel(mesesPend(r.competencia)),fmtBR(r.valor_num),r.valor_pago||'',r.data_pagamento||'']);}
     else{row=row.concat([(ehDevedor(r)&&r.valor_num!=null)?fmtBR(r.valor_num):'']);}
-    row=row.concat([ehDevedor(r)?'':stLabel(r),
+    row=row.concat([ehDevedor(r)?(devQuitado(r)?'SALDO QUITADO':'SALDO EM ABERTO'):stLabel(r),
                     (ehDevedor(r)||!r.previsao_pagamento)?'':dataBR(r.previsao_pagamento),
                     r.cp?'SIM':'',r.obs||'']);
     rows.push(row);
@@ -1831,10 +1881,10 @@ function extensoReais(v){
 
 /* ================= AUDITORIA / HISTÓRICO ================= */
 const LOGTABLE=isGestao?'repasses_log':'repasses_log_atendimento';
-const CAMPO_NOME={nome:'Cliente',cpf:'CPF',processo:'Processo',reu:'Réu',grupo:'Grupo',advogado:'Advogado',
+const CAMPO_NOME={nome:'Cliente',cpf:'CPF',processo:'Processo',reu:'Réu',grupo:'ADV',advogado:'Advogado',
   tipo:'Tipo',conta:'Conta',competencia:'Competência',ano:'Ano',mes:'Mês',valor_num:'Valor',cp:'C.P.',
   pago:'Status',ag_pagamento:'Ag. pagamento',previsao_pagamento:'Previsão de pagamento',
-  natureza:'Tipo de lançamento',tipo_devedor:'Tipo do saldo devedor',
+  natureza:'Tipo de lançamento',tipo_devedor:'Tipo do saldo devedor',devedor_quitado:'Saldo quitado',
   data_pagamento:'Data do pagamento',valor_pago:'Valor pago',obs:'Observação',
   pix_chave:'Chave Pix',pix_banco:'Banco',pix_agencia:'Agência',pix_conta:'Conta corrente'};
 function fmtDT(s){
@@ -1854,6 +1904,7 @@ function logVal(campo,v){
   if(campo==='cp')return (v==='true')?'Sim':'Não';
   if(campo==='pago')return (v==='true')?'PAGO':'PENDENTE';
   if(campo==='ag_pagamento')return (v==='true')?'Sim':'Não';
+  if(campo==='devedor_quitado')return (v==='true')?'Sim':'Não';
   if(campo==='previsao_pagamento')return dataBR(v);
   if(campo==='natureza')return (v==='devedor')?'Saldo devedor':'Repasse';
   if(campo==='valor_num')return brl(parseFloat(v)||0);
@@ -1954,7 +2005,7 @@ function renderFin(recs,all){
     h+='<div class="empty"><div>Nenhum pagamento encontrado nesse período.</div></div>';
     document.getElementById('wrap').innerHTML=h;return;
   }
-  const fcols=[['Data do pagamento','data'],['Cliente','nome'],['CPF','cpf'],['Processo','processo'],['Grupo','grupo'],['Competência','comp'],['Valor lançado','vlanc'],['Valor pago','vpago']];
+  const fcols=[['Data do pagamento','data'],['Cliente','nome'],['CPF','cpf'],['Processo','processo'],['ADV','grupo'],['Competência','comp'],['Valor lançado','vlanc'],['Valor pago','vpago']];
   h+='<table><thead><tr>';
   fcols.forEach(c=>{const active=finSort.key===c[1];const ar=active?(finSort.dir>0?'▲':'▼'):'▲▼';h+='<th onclick="setFinSort(\''+c[1]+'\')">'+c[0]+' <span class="arr"'+(active?' style="opacity:.85"':'')+'>'+ar+'</span></th>';});
   h+='<th class="nosort">Comprovante</th>';
@@ -1964,7 +2015,7 @@ function renderFin(recs,all){
       +'<td data-l="Cliente"><span class="cli">'+esc(r.nome)+'</span></td>'
       +'<td data-l="CPF"><span class="cpf mono">'+esc(r.cpf||'—')+'</span></td>'
       +'<td data-l="Processo"><span class="proc mono">'+esc(r.processo)+'</span></td>'
-      +'<td data-l="Grupo"><span class="gtag g-'+gcls(r.grupo)+'">'+esc(r.grupo)+'</span></td>'
+      +'<td data-l="ADV"><span class="gtag g-'+gcls(r.grupo)+'">'+esc(r.grupo)+'</span></td>'
       +'<td data-l="Competência">'+esc(r.competencia)+'</td>'
       +'<td data-l="Valor lançado"><span class="mono" style="color:var(--txt3)">'+brl(r.valor_num||0)+'</span></td>'
       +'<td data-l="Valor pago"><span class="val mono" style="color:var(--verde)">'+brl(finValor(r))+'</span></td>'
@@ -2000,7 +2051,7 @@ function finAgHTML(all){
     +'<div class="hint" style="margin:-4px 0 9px">Não depende do período acima (que filtra pela data do pagamento). '
     +'Clique no <b>$</b> para dar a baixa aqui mesmo.</div>'
     +'<table><thead><tr>'
-    +['Previsão','Cliente','CPF','Processo','Grupo','Competência','Valor lançado','A pagar','']
+    +['Previsão','Cliente','CPF','Processo','ADV','Competência','Valor lançado','A pagar','']
        .map(c=>'<th class="nosort">'+c+'</th>').join('')
     +'</tr></thead><tbody>';
   ags.forEach(r=>{
@@ -2010,7 +2061,7 @@ function finAgHTML(all){
       +'<td data-l="Cliente"><span class="cli">'+esc(r.nome)+'</span></td>'
       +'<td data-l="CPF"><span class="cpf mono">'+esc(r.cpf||'—')+'</span></td>'
       +'<td data-l="Processo"><span class="proc mono">'+esc(r.processo)+'</span></td>'
-      +'<td data-l="Grupo"><span class="gtag g-'+gcls(r.grupo)+'">'+esc(r.grupo)+'</span></td>'
+      +'<td data-l="ADV"><span class="gtag g-'+gcls(r.grupo)+'">'+esc(r.grupo)+'</span></td>'
       +'<td data-l="Competência">'+esc(r.competencia)+'</td>'
       +'<td data-l="Valor lançado"><span class="mono" style="color:var(--txt3)">'+brl(r.valor_num||0)+'</span></td>'
       +'<td data-l="A pagar"><span class="val mono" style="color:var(--azul2)">'+brl(valorAPagar(r))+'</span>'
@@ -2041,7 +2092,7 @@ function dataBR(s){
 }
 function exportFinCSV(){
   const rows=finRows(applyFilters(getRecords()));
-  const head=['Data do pagamento','Cliente','CPF','Processo','Reu','Grupo','Competencia','Valor lancado','Valor pago'];
+  const head=['Data do pagamento','Cliente','CPF','Processo','Reu','ADV','Competencia','Valor lancado','Valor pago'];
   const out=[head];
   rows.forEach(r=>out.push([dataBR(r.data_pagamento),r.nome,r.cpf,r.processo,r.reu,r.grupo,r.competencia,fmtBR(r.valor_num),fmtBR(finValor(r))]));
   const total=rows.reduce((s,r)=>s+finValor(r),0);
