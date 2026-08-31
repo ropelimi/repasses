@@ -595,3 +595,27 @@ end $function$;
 --      where natureza = 'devedor'
 --        and (pago or ag_pagamento or previsao_pagamento is not null);
 --     -- limpeza preventiva; não havia nenhum nessa situação.
+
+
+-- =====================================================================
+-- MIGRAÇÃO APLICADA EM 30/08/2026 (parte 3)
+-- Atendimento vê o valor do saldo devedor + correção de regressão
+-- =====================================================================
+-- 21) repasses_atendimento passa a expor valor_num APENAS do saldo devedor:
+--       case when natureza = 'devedor' then valor_num else null end as valor_num
+--     Por ser coluna calculada, o Postgres a torna não atualizável — o
+--     atendimento lê, mas não grava valor nem por chamada direta à API.
+--     valor_pago continua totalmente fora da view.
+--
+-- 22) CORREÇÃO DE REGRESSÃO em bloqueia_pagamento_nao_gestao():
+--     a migração 19 (saldo_devedor_sem_status_nem_previsao) reintroduziu por
+--     engano a trava de ag_pagamento, e o atendimento ficou sem conseguir
+--     mover um lançamento entre PENDENTE e AG. PAGAMENTO.
+--     ag_pagamento NÃO deve constar na lista de campos bloqueados do UPDATE.
+--
+-- Conferência rápida (só lê):
+-- select position('new.ag_pagamento,false) is distinct from coalesce(old.ag_pagamento'
+--          in pg_get_functiondef(p.oid)) > 0 as bloqueia_ag_pagamento
+--   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+--  where n.nspname='public' and p.proname='bloqueia_pagamento_nao_gestao';
+-- Esperado: false.

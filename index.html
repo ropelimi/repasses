@@ -127,6 +127,7 @@ tbody tr.pago .cli,tbody tr.pago .val{color:var(--txt2)}
 .stbtn.agp{background:var(--azul-cl);color:var(--azul);border-color:var(--agp-borda)}
 .stbtn.dev{background:var(--marrom-bg);color:var(--marrom);border-color:#e8cbb4}
 .devtag{display:inline-block;padding:2px 9px;border-radius:20px;font-size:10.5px;font-weight:700;white-space:nowrap;background:var(--marrom-bg);color:var(--marrom)}
+.devval{font-size:11.5px;font-weight:700;color:var(--marrom);white-space:nowrap;margin-top:3px}
 .prev{display:inline-block;font-size:11px;font-weight:700;color:var(--azul);white-space:nowrap}
 .liq{font-size:10.5px;font-weight:700;color:var(--azul2);white-space:nowrap;margin-top:2px}
 .apagar{font-size:13px;font-weight:700;color:var(--azul2);background:var(--azul-cl);border:1px solid var(--agp-borda);border-radius:9px;padding:8px 12px}
@@ -329,6 +330,10 @@ tbody tr.pago .cli,tbody tr.pago .val{color:var(--txt2)}
 .rc-item .p{flex:1;font-family:'SF Mono','Consolas',monospace;font-size:11.5px}
 .rc-tot{display:flex;justify-content:space-between;align-items:center;background:var(--azul-cl);border-radius:9px;padding:10px 14px;margin-top:10px;font-weight:700;color:var(--azul)}
 .rc-tot .v{font-size:18px;font-weight:800}
+.rc-desc{display:flex;align-items:center;gap:9px;background:var(--marrom-bg);color:var(--marrom);
+  border-radius:9px;padding:9px 12px;margin-top:10px;font-size:12.5px;font-weight:600}
+.rc-desc input{width:16px;height:16px;accent-color:var(--marrom);cursor:pointer;flex:none}
+.rc-tot .bruto{font-size:11px;font-weight:600;opacity:.8;display:block;text-align:right}
 .hint{font-size:11px;color:var(--txt3);margin-top:3px}
 .themebtn svg{width:15px;height:15px}
 </style>
@@ -737,6 +742,12 @@ function abateHTML(r){
   return '<div class="liq" title="Valor do lançamento menos o saldo devedor do cliente">a pagar '
     +brl(a.liquido)+'<small>'+brl(a.bruto)+' − '+brl(a.desconto)+' devedor</small></div>';
 }
+/* Soma dos saldos devedores em aberto de um cliente. O atendimento tambem
+   enxerga esse valor (a view do banco expoe valor_num so para devedor). */
+function devedorDoCliente(nn){
+  return getRecords().filter(r=>r.nome_norm===nn&&ehDevedor(r)&&!r.pago)
+    .reduce((s,r)=>s+Number(r.valor_num||0),0);
+}
 function totaisCliente(list){
   const rep=list.filter(r=>!ehDevedor(r)).reduce((s,r)=>s+valorAberto(r),0);
   const dev=list.filter(ehDevedor).reduce((s,r)=>s+valorAberto(r),0);
@@ -780,7 +791,9 @@ function renderDetLanc(){
     +(ehDevedor(r)?'':di('Status',stEstatico(r)))
     +((r.previsao_pagamento&&!ehDevedor(r))?di('Previsão de pagamento','<span class="prev">'+dataBR(r.previsao_pagamento)+'</span>'):'')
     +(isGestao?di('Tempo pendente','<span class="ag '+tempoCls(m)+'">'+tempoLabel(m)+'</span>'):'')
-    +(isGestao?di(ehDevedor(r)?'Valor devido':'Valor lançado','<span class="val mono">'+brl(r.valor_num||0)+'</span>'):'')
+    +((isGestao||(ehDevedor(r)&&r.valor_num!=null))
+        ?di(ehDevedor(r)?'Valor devido':'Valor lançado',
+            '<span class="val mono"'+(ehDevedor(r)?' style="color:var(--marrom)"':'')+'>'+brl(r.valor_num||0)+'</span>'):'')
     +(abate(r)?di('A pagar (já com o desconto)','<span class="val mono" style="color:var(--azul2)">'+brl(abate(r).liquido)
         +'</span><div class="hint">'+brl(abate(r).bruto)+' menos '+brl(abate(r).desconto)+' de saldo devedor deste cliente</div>'):'')
     +(r.pago&&isGestao?di('Valor pago','<span class="val mono" style="color:var(--verde)">'+brl(finValor(r))+'</span>'):'')
@@ -808,7 +821,7 @@ function renderDetCliente(){
     +di('CPF',esc((lista.map(r=>r.cpf).find(x=>x))||'—'))
     +di('Lançamentos',lista.length)
     +(isGestao?di('Repasses em aberto','<span class="val mono">'+brl(tot.rep)+'</span>'):'')
-    +(isGestao&&tot.dev>0?di('Saldo devedor','<span class="val mono" style="color:var(--marrom)">− '+brl(tot.dev)+'</span>'):'')
+    +(tot.dev>0?di('Saldo devedor','<span class="val mono" style="color:var(--marrom)">− '+brl(tot.dev)+'</span>'):'')
     +(isGestao?di('A repassar (líquido)','<span class="val mono" style="color:var(--vermelho)">'+brl(tot.liq)+'</span>'):'')
     +'</div>';
   h+='<div class="det-sec">Cliente Problema</div>'
@@ -987,6 +1000,9 @@ function renderStats(all){
       'toggleCP()',filters.cp,
       'Mostra só os Clientes Problema.');
   }else{
+    const totalDevAt=vis.filter(ehDevedor).reduce((s,r)=>s+Number(r.valor_num||0),0);
+    if(totalDevAt>0)html+=card('dev','Saldo devedor',brl(totalDevAt),
+      "cardStatus('devedor')",filters.status==='devedor','Mostra só os lançamentos de saldo devedor.');
     html+=card('','Lançamentos',vis.length,
       "cardStatus('todos')",filters.status==='todos','Limpa o filtro de status e mostra todos os lançamentos.');
     html+=card('','Clientes',clientes,
@@ -1079,6 +1095,8 @@ function rowHTML(r){
   cells+='<td data-l="Status">'
     +(ehDevedor(r)
       ? '<span class="devtag">'+esc(r.tipo_devedor||'Saldo devedor')+'</span>'
+        /* na gestao o valor ja aparece na coluna Valor; no atendimento, aqui */
+        +((!isGestao&&r.valor_num!=null)?'<div class="devval">'+brl(r.valor_num)+'</div>':'')
       : stt+((r.previsao_pagamento&&!r.pago)?'<div class="prev" title="Previsão de pagamento">prev. '+dataBR(r.previsao_pagamento)+'</div>':''))
     +'</td>';
   if(!isGestao){
@@ -1148,6 +1166,10 @@ function renderCards(recs){
       totHtml='<div style="text-align:right"><div class="tot mono">'+brl(tot.liq)+'</div>'
         +(tot.dev>0?'<div style="font-size:10px;color:var(--txt3);white-space:nowrap;margin-top:2px">'+brl(tot.rep)+' − '+brl(tot.dev)+' devedor</div>':'')
         +'</div>';
+    }else if(tot.dev>0){
+      /* o atendimento nao ve repasse, mas ve o quanto o cliente deve */
+      totHtml='<div style="text-align:right"><div class="tot mono" style="color:var(--marrom);font-size:15px">'
+        +brl(tot.dev)+'</div><div style="font-size:10px;color:var(--txt3);white-space:nowrap">saldo devedor</div></div>';
     }
     h+='<div class="card" id="card_'+cssid(k)+'">'
       +'<div class="card-h" onclick="toggleCard(\''+cssid(k)+'\')">'
@@ -1173,7 +1195,9 @@ function renderCards(recs){
 }
 function clRow(r){
   const m=mesesPend(r.competencia);
-  let right=isGestao?('<span class="val mono">'+brl(r.valor_num||0)+'</span>'+abateHTML(r)):'';
+  let right=isGestao
+    ? ('<span class="val mono">'+brl(r.valor_num||0)+'</span>'+abateHTML(r))
+    : ((ehDevedor(r)&&r.valor_num!=null)?'<span class="val mono" style="color:var(--marrom)">'+brl(r.valor_num)+'</span>':'');
   let meta='<span class="gtag g-'+gcls(r.grupo)+'">'+esc(r.grupo)+'</span>'
     +'<span class="comp">'+esc(r.competencia)+'</span>'
     +((isGestao&&!ehDevedor(r))?'<span class="ag '+tempoCls(m)+'">'+tempoLabel(m)+'</span>':'')
@@ -1567,12 +1591,14 @@ function doExportCSV(){
   const recs=applyFilters(getRecords());
   let head=['Cliente','CPF','Processo','Reu','Grupo','Competencia','Tipo de lancamento'];
   if(isGestao){head=head.concat(['Tempo pendente','Valor','Valor pago','Data pagamento']);}
+  else{head=head.concat(['Valor do saldo devedor']);}
   head=head.concat(['Status','Previsao de pagamento','C.P.','Observacao']);
   const rows=[head];
   recs.forEach(r=>{
     let row=[r.nome,r.cpf,r.processo,r.reu,r.grupo,r.competencia,
              ehDevedor(r)?('Saldo devedor'+(r.tipo_devedor?' - '+r.tipo_devedor:'')):'Repasse'];
     if(isGestao){row=row.concat([tempoLabel(mesesPend(r.competencia)),fmtBR(r.valor_num),r.valor_pago||'',r.data_pagamento||'']);}
+    else{row=row.concat([(ehDevedor(r)&&r.valor_num!=null)?fmtBR(r.valor_num):'']);}
     row=row.concat([ehDevedor(r)?'':stLabel(r),
                     (ehDevedor(r)||!r.previsao_pagamento)?'':dataBR(r.previsao_pagamento),
                     r.cp?'SIM':'',r.obs||'']);
@@ -2012,6 +2038,7 @@ function exportFinCSV(){
 /* ================= RECIBO DE QUITAÇÃO ================= */
 let RECVALS={};
 let RECLIST=[];   /* lancamentos que estao no recibo aberto, para o botao de anexar */
+let RECDEV=0;     /* saldo devedor do cliente do recibo aberto */
 function anexarDoRecibo(){
   const marcados=recChecked().map(i=>findRec(i)).filter(Boolean);
   const alvo=marcados.length?marcados[0]:(RECLIST[0]||null);
@@ -2044,6 +2071,7 @@ async function recFetchVals(ids){
 async function buildRec(list){
   const r=list[0];
   RECLIST=list.slice();
+  RECDEV=devedorDoCliente(r.nome_norm);
   const pend=list.filter(x=>!x.pago);
   const marc=new Set((pend.length?pend:list).map(x=>String(x.id)));
   let procs='';
@@ -2066,8 +2094,14 @@ async function buildRec(list){
     +'<div class="fld"><label>Agência</label><input id="rc_ag" value="'+esc(b.pix_agencia||'')+'"></div>'
     +'<div class="fld" style="grid-column:1/3"><label>Conta Corrente</label><input id="rc_conta" value="'+esc(b.pix_conta||'')+'"></div>'
     +'</div>'
+    +(RECDEV>0
+      ? ('<label class="rc-desc"><input type="checkbox" id="rc_abate" checked onchange="recTotal()">'
+         +'<span>Descontar o saldo devedor deste cliente: '+brl(RECDEV)+'</span></label>')
+      : '')
     +'<div class="rc-tot"><span>Valor total do recibo</span><span class="v mono" id="rc_total">carregando…</span></div>'
-    +'<div class="hint">Os dados bancários ficam salvos no(s) lançamento(s) ao gerar o recibo.</div>';
+    +'<div class="hint">Os dados bancários ficam salvos no(s) lançamento(s) ao gerar o recibo.'
+    +(RECDEV>0?' O recibo sai com o valor já descontado — desmarque acima se o saldo devedor já foi abatido em outro recibo.':'')
+    +'</div>';
   document.getElementById('ovRec').classList.add('show');
   const ids=list.map(x=>x.id);
   const m=await recFetchVals(ids);
@@ -2079,11 +2113,24 @@ async function buildRec(list){
   recTotal();
 }
 function recChecked(){return [].slice.call(document.querySelectorAll('#recBody .rc-item input:checked')).map(c=>c.getAttribute('data-id'));}
+/* Total do recibo: soma dos processos marcados, menos o saldo devedor do
+   cliente (se a caixinha estiver marcada). Nunca fica negativo. */
+function recDesconto(){
+  const cx=document.getElementById('rc_abate');
+  if(!cx||!cx.checked)return 0;
+  return Number(RECDEV||0);
+}
+function recBruto(){
+  let t=0;recChecked().forEach(id=>{t+=Number((RECVALS||{})[id]||0);});
+  return t;
+}
+function recLiquido(){ return Math.max(0, recBruto()-recDesconto()); }
 function recTotal(){
   const el=document.getElementById('rc_total');if(!el)return;
   if(!RECVALS||!Object.keys(RECVALS).length){return;}
-  let t=0;recChecked().forEach(id=>{t+=Number(RECVALS[id]||0);});
-  el.textContent=brl(t);
+  const bruto=recBruto(), desc=recDesconto();
+  el.innerHTML=brl(bruto-desc>0?bruto-desc:0)
+    +(desc>0?'<span class="bruto">'+brl(bruto)+' − '+brl(desc)+' devedor</span>':'');
 }
 async function gerarRecibo(){
   const ids=recChecked();
@@ -2095,9 +2142,12 @@ async function gerarRecibo(){
              pix_banco:(document.getElementById('rc_banco').value||'').trim(),
              pix_agencia:(document.getElementById('rc_ag').value||'').trim(),
              pix_conta:(document.getElementById('rc_conta').value||'').trim()};
-  let total=0;const procs=[];
-  ids.forEach(id=>{const r=findRec(id);if(r)procs.push(r.processo);total+=Number((RECVALS||{})[id]||0);});
-  if(!total&&!confirm('O valor total está zerado ou indisponível. Deseja gerar o recibo assim mesmo?'))return;
+  const procs=[];
+  ids.forEach(id=>{const r=findRec(id);if(r)procs.push(r.processo);});
+  const bruto=recBruto(), desc=recDesconto(), total=recLiquido();
+  if(desc>0&&bruto>0&&total===0
+     &&!confirm('O saldo devedor de '+brl(desc)+' zera o valor deste recibo.\nGerar assim mesmo?'))return;
+  if(!bruto&&!confirm('O valor total está zerado ou indisponível. Deseja gerar o recibo assim mesmo?'))return;
   for(let i=0;i<ids.length;i++){await persist(ids[i],pix);}
   ids.forEach(id=>{const r=findRec(id);if(r)Object.assign(r,pix);});
   abrirRecibo({nome:nome,cpf:cpf,procs:procs,total:total,pix:pix});
