@@ -210,6 +210,11 @@ tbody tr.pago .cli,tbody tr.pago .val{color:var(--txt2)}
   tbody tr{border:1px solid var(--borda);border-radius:10px;margin-bottom:10px;padding:6px}
   tbody td{border:none;padding:6px 8px;display:flex;justify-content:space-between;gap:10px}
   tbody td::before{content:attr(data-l);font-size:10px;font-weight:700;color:var(--txt3);text-transform:uppercase}
+  tfoot,tfoot tr,tfoot td{display:block;width:100%}
+  tfoot tr{border:1px solid var(--borda);border-radius:10px;margin-bottom:10px;padding:6px;background:var(--thead-bg)}
+  tfoot td{border:none;padding:6px 8px;display:flex;justify-content:space-between;gap:10px}
+  tfoot td::before{content:attr(data-l);font-size:10px;font-weight:700;color:var(--txt3);text-transform:uppercase}
+  tfoot td:empty{display:none}
   .modal-b{grid-template-columns:1fr}.modal-b .full{grid-column:1}
   .stats{padding:10px}.controls{padding:10px;top:0;position:static}
   header{position:static}
@@ -307,6 +312,8 @@ tbody tr.pago .cli,tbody tr.pago .val{color:var(--txt2)}
 .fincard{flex:1;min-width:150px;background:var(--surface);border:1px solid var(--borda);border-radius:12px;padding:13px 16px}
 .fincard .fv{font-size:22px;font-weight:800;color:var(--verde);line-height:1.1}
 .fincard.agp .fv{color:var(--azul2)}
+tfoot td{background:var(--thead-bg);border-top:2px solid var(--borda);border-bottom:none;
+  font-weight:700;font-size:13px;padding:11px 8px;vertical-align:middle}
 .fincard .fl{font-size:10.5px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;margin-top:4px;font-weight:700}
 .fincard.n .fv{color:var(--azul)}
 .grpsum{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
@@ -2016,7 +2023,16 @@ function finAgHTML(all){
       +'</div></td></tr>'
       +'<tr class="exprow" id="exp_'+rid(r)+'" style="display:none"><td class="exp" colspan="9">'+expHTML(r)+'</td></tr>';
   });
-  return h+'</tbody></table><div style="height:16px"></div>';
+  const totBruto=ags.reduce((s,r)=>s+Number(r.valor_num||0),0);
+  const totLiq=ags.reduce((s,r)=>s+valorAPagar(r),0);
+  const n=ags.length, plural=(n>1?'s':'');
+  h+='</tbody><tfoot><tr>'
+    +'<td colspan="6" data-l="">Total &mdash; '+n+' lançamento'+plural+' separado'+plural+'</td>'
+    +'<td data-l="Valor lançado"><span class="mono" style="color:var(--txt3)">'+brl(totBruto)+'</span></td>'
+    +'<td data-l="A pagar"><span class="val mono" style="color:var(--azul2)">'+brl(totLiq)+'</span>'
+      +(totBruto>totLiq?'<div class="liq"><small>'+brl(totBruto)+' − '+brl(totBruto-totLiq)+' de saldo devedor</small></div>':'')
+    +'</td><td></td></tr></tfoot>';
+  return h+'</table><div style="height:16px"></div>';
 }
 function dataBR(s){
   if(!s)return '—';
