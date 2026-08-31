@@ -46,7 +46,7 @@ Os dois leem/gravam a mesma base: o que um faz, o outro vê (atualização autom
 ## 3. Banco de dados (Supabase)
 
 ### Tabela `repasses` — **268 lançamentos** (~R$ 647.565,25 | 25 pagos, 2 ag. pagamento, 241 pendentes em 30/08/2026)
-`id` (bigint identity), `nome`, `nome_norm` (sem acento, maiúsculo), `cpf`, `processo`, `reu`, `grupo`, `advogado`, `tipo`, `conta`, `competencia` ("Mmm/AAAA"), `ano`, `mes`, `valor_num` (numeric), `busca`, `cp` (bool), `pago` (bool), **`ag_pagamento` (bool)**, **`previsao_pagamento` (date)**, **`natureza` (text: `repasse` | `devedor`)**, **`tipo_devedor` (text)**, `data_pagamento` (text ISO), `valor_pago` (text BR), `obs`, `pix_chave`, `pix_banco`, `pix_agencia`, `pix_conta`, `atualizado_por`, `atualizado_em`, `criado_em`.
+`id` (bigint identity), `nome`, `nome_norm` (sem acento, maiúsculo), `cpf`, `processo`, `reu`, `grupo`, `advogado`, `tipo`, `conta`, `competencia` ("Mmm/AAAA"), `ano`, `mes`, `valor_num` (numeric), `busca`, `cp` (bool), `pago` (bool), **`ag_pagamento` (bool)**, **`previsao_pagamento` (date)**, **`natureza` (text: `repasse` | `devedor`)**, **`tipo_devedor` (text)**, **`devedor_quitado` (bool)**, `data_pagamento` (text ISO), `valor_pago` (text BR), `obs`, `pix_chave`, `pix_banco`, `pix_agencia`, `pix_conta`, `atualizado_por`, `atualizado_em`, `criado_em`.
 
 **Os três status saem de duas colunas booleanas** (não existe coluna "status"):
 
@@ -58,7 +58,7 @@ Os dois leem/gravam a mesma base: o que um faz, o outro vê (atualização autom
 
 `pago` manda: o trigger `trg_normaliza_status` zera `ag_pagamento` sempre que `pago` vira `true`, então a quarta combinação nunca existe no banco.
 
-Grupos: Max, Mariah, Jezieli, Yunes, Kaled, Nardon, JLM, Máximo Êxito.
+Grupos (na tela o rótulo é **ADV**, desde 31/08/2026; a coluna no banco continua `grupo`): Max, Mariah, Jezieli, Yunes, Kaled, Nardon, JLM, Máximo Êxito.
 
 ### Tabela `profiles`
 `id` (uuid → `auth.users`, **ON DELETE CASCADE**), `email` (text), `nome` (text), `perfil` (text NOT NULL, default `'atendimento'`, valores `gestao` | `atendimento`).
@@ -78,7 +78,7 @@ Grupos: Max, Mariah, Jezieli, Yunes, Kaled, Nardon, JLM, Máximo Êxito.
 
 ### Segurança de pagamento (3ª versão, 30/08/2026)
 - **Trigger `trg_bloqueia_pagamento`** (BEFORE INSERT OR UPDATE em `repasses`) → função `bloqueia_pagamento_nao_gestao()`.
-- Impede que **qualquer usuário logado que não seja `gestao`** altere `pago`, `data_pagamento`, `valor_pago` e **`previsao_pagamento`** — pela tela, pela view ou por chamada direta à API.
+- Impede que **qualquer usuário logado que não seja `gestao`** altere `pago`, `data_pagamento`, `valor_pago`, **`previsao_pagamento`** e **`devedor_quitado`** — pela tela, pela view ou por chamada direta à API.
 - **`ag_pagamento` fica FORA da trava, a pedido:** o atendimento **pode** mover um lançamento entre PENDENTE e AG. PAGAMENTO (pela tela de edição). O que ele nunca faz é marcar PAGO nem mexer em valores ou na data prevista.
   > ⚠️ **Regressão já cometida uma vez.** Em 30/08/2026, ao reescrever a função inteira na migração do saldo devedor, a trava de `ag_pagamento` voltou por engano e o atendimento ficou sem conseguir mudar o status. Foi corrigida no mesmo dia. **Ao mexer nesta função, confira sempre se `ag_pagamento` continua fora da lista de bloqueados** — a linha existe só como comentário no código, é fácil perder.
 - `auth.uid()` nulo (service_role / migrações) **passa livre**, de propósito.
@@ -88,7 +88,7 @@ Grupos: Max, Mariah, Jezieli, Yunes, Kaled, Nardon, JLM, Máximo Êxito.
 - **Trigger `trg_normaliza_status`** (BEFORE INSERT OR UPDATE) → função `normaliza_status_repasse()`.
 - `pago = true` força `ag_pagamento = false`. Um lançamento pago não fica "aguardando pagamento".
 - Virou **AG. PAGAMENTO** sem previsão → agenda o **próximo dia 20 útil** (regra no §3.1). Voltou para **PENDENTE** → a previsão é limpa. Ficou **PAGO** → a previsão é mantida, como histórico.
-- `natureza = 'repasse'` limpa `tipo_devedor` sozinho.
+- `natureza = 'repasse'` limpa `tipo_devedor` e `devedor_quitado` sozinho. Só um lançamento de saldo devedor pode estar "quitado".
 - Roda **depois** da trava (ordem alfabética: `trg_bloqueia_pagamento` → `trg_marca_autor` → `trg_normaliza_status`), então a trava sempre enxerga o que o usuário realmente tentou gravar.
 - **Testado com `rollback`** antes de aplicar: 12 cenários de status/previsão + 8 de anexos.
 
@@ -215,11 +215,24 @@ Botão de **clipe** com o número de arquivos: na linha do lançamento, na visã
 No **Novo lançamento**, o primeiro campo é **Tipo de lançamento**: *Repasse ao cliente* ou *Saldo devedor*. Escolhendo Saldo devedor aparece o **tipo**: Custas, Má-Fé, Réu, Indenização, Escritório, Estado.
 - Os dois aparecem **separados** na lista, com etiqueta marrom no saldo devedor.
 - **Saldo devedor não tem status nem previsão de pagamento** (mudança de 30/08/2026, a pedido). Ele serve só para abater de repasses e como informação nos casos de cliente sem repasse. Na coluna Status aparece o tipo (Custas, Má-Fé…) no lugar do botão; o botão **$** (baixa) não aparece; e ele fica **fora dos filtros** Pendentes / Ag. pagamento / Pagos, aparecendo só em "Todos".
-- **Como um saldo devedor "sai" da conta:** editando ou excluindo o lançamento. Não existe "quitar", justamente porque ele não tem ciclo de pagamento.
+- **Como um saldo devedor "sai" da conta:** marcando **Saldo quitado** (ver §4.9), editando ou excluindo o lançamento.
 - O banco garante isso sozinho: o trigger `trg_normaliza_status` zera `pago`, `ag_pagamento`, `previsao_pagamento`, `data_pagamento` e `valor_pago` de qualquer lançamento com `natureza = 'devedor'`.
 - Na **ficha do cliente** o valor sai **abatido**: repasse de R$ 3.000 com custa de R$ 500 mostra **R$ 2.500**, com a conta escrita embaixo.
 - **Não entra no Financeiro** (decisão de 30/08/2026: o Financeiro é o dinheiro que saiu para o cliente) e **não entra no recibo de quitação**.
-- Nos cartões do topo: **"A repassar (líquido)"** já é repasses − devedores, e um cartão **"Saldo devedor"** aparece quando existe algum.
+- Nos cartões do topo: **"A repassar (líquido)"** já é repasses − devedores, e um cartão **"Saldo devedor"** aparece quando existe algum em aberto. Na **gestão** esse cartão mostra o **valor**; no **atendimento**, a **quantidade de lançamentos** (mudança de 31/08/2026, a pedido — o atendimento continua vendo o valor de cada saldo devedor na lista, na ficha e no cartão do cliente, só não vê o total somado).
+
+### 4.9 Saldo quitado (NOVO em 31/08/2026)
+Quando o caso é resolvido, a gestão dá o saldo devedor por **quitado** — ele **para de abater** do cliente, mas **continua no histórico**.
+
+- Coluna `devedor_quitado` (bool, default `false`) em `repasses` e na view `repasses_atendimento`.
+- Na coluna **Status** de cada saldo devedor aparece uma pastilha: **EM ABERTO** (cinza) ou **QUITADO** (verde). Na gestão é um botão — um clique alterna, com confirmação ao quitar. No atendimento é só um selo, sem clique.
+- Também está no **formulário de edição** (caixinha "Saldo quitado — para de abater do cliente"), que só aparece quando o tipo de lançamento é *Saldo devedor*.
+- Quitado, o lançamento fica **riscado** na lista e no cartão do cliente, como um pago.
+- **Só a gestão marca.** A trava do banco (`bloqueia_pagamento_nao_gestao`) bloqueia `devedor_quitado` junto com `pago` e `previsao_pagamento`.
+- Sai do CSV (coluna Status: `SALDO QUITADO` / `SALDO EM ABERTO`) e do Histórico (campo "Saldo quitado").
+- Um saldo quitado **não entra** em `devedorDoCliente()`, nem no abatimento dos repasses, nem nos cartões do topo, nem na contagem "N saldo devedor" do cartão do cliente. Quem ignora o quitado é o helper `devEmAberto(r)` — use ele, não `ehDevedor(r)`, sempre que a pergunta for "quanto o cliente ainda deve".
+- O **filtro** "Saldo devedor" (cartão do topo) continua mostrando **todos**, quitados inclusive, para ser possível achar e reabrir um deles. Por isso o cartão pode dizer "1" e a lista trazer 2 linhas — a segunda vem riscada e marcada QUITADO.
+- **Testado com `rollback`** antes de aplicar: 6 cenários, incluindo a guarda de regressão do `ag_pagamento`.
 
 ### 4.6 Saldo a pagar já com o desconto (NOVO em 30/08/2026)
 Quando um repasse está em **AG. PAGAMENTO** e o cliente tem saldo devedor, a tela mostra **quanto sai de fato**:
@@ -420,6 +433,7 @@ rollback;
 - **Sessão vencida fazia o sistema insistir para sempre.** O `loadData` roda de 30 em 30 segundos; com o token vencido eram 73 recusas seguidas no log de 30/08/2026. Agora `sessaoCaiu()` reconhece o 401 e `sessaoExpirou()` para o relógio e traz a tela de login de volta, em vez de piscar erro vermelho a cada meio minuto.
 - **Temp table em teste com `set local role authenticated`** precisa de `grant all on _res to authenticated`, senão o teste falha com "permission denied for table _res" e parece que a policy é que quebrou.
 - **No teste como atendimento, leia pela view, não pela tabela.** Um `select ... from public.repasses` rodando com `set local role authenticated` e um usuário de atendimento devolve **zero linhas** (a policy `repasses_gestao` barra), e a variável fica nula — o teste acusa falha onde o sistema está certo. Use `public.repasses_atendimento`.
+- **Caixinha de marcar dentro do modal esticava para 100%.** A regra `.modal-b .fld input{width:100%}` valia também para `input[type=checkbox]`, e o quadradinho ficava largo, jogando o rótulo para o meio da linha (o campo **C.P.** já sofria disso). Corrigido em 31/08/2026 com `.modal-b .fld input[type=checkbox]{width:18px;flex:none}`.
 
 ---
 
