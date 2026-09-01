@@ -135,6 +135,9 @@ tbody tr.pago .cli,tbody tr.pago .val{color:var(--txt2)}
 [data-theme="dark"] .stbtn.aberto{background:var(--hover2);color:var(--txt2);border-color:var(--borda)}
 .prev{display:inline-block;font-size:11px;font-weight:700;color:var(--azul);white-space:nowrap}
 .liq{font-size:10.5px;font-weight:700;color:var(--azul2);white-space:nowrap;margin-top:2px}
+/* tempo pendente logo abaixo da competencia (nao e mais coluna separada) */
+.tp{margin-top:3px}
+tbody tr.pago .tp{opacity:.65}
 .apagar{font-size:13px;font-weight:700;color:var(--azul2);background:var(--azul-cl);border:1px solid var(--agp-borda);border-radius:9px;padding:8px 12px}
 .apagar small{font-weight:600;color:var(--txt3);font-size:11px}
 /* a conta embaixo pode quebrar linha: numa linha so, ela empurra a tabela */
@@ -1077,7 +1080,6 @@ function sortRecs(recs){
   return recs.slice().sort((a,b)=>{
     let x,y;
     if(k==='valor'){x=a.valor_num||0;y=b.valor_num||0;}
-    else if(k==='meses'){x=mesesPend(a.competencia);y=mesesPend(b.competencia);}
     else if(k==='comp'){x=parseComp(a.competencia).getTime();y=parseComp(b.competencia).getTime();}
     else{x=norm(String(a[k]||''));y=norm(String(b[k]||''));}
     if(x<y)return -1*d;if(x>y)return 1*d;return 0;
@@ -1087,12 +1089,22 @@ function setSort(k){if(filters.sort.key===k)filters.sort.dir*=-1;else filters.so
 
 function renderFlat(recs){
   recs=sortRecs(recs);
+  /* O tempo pendente saiu da coluna propria e passou a aparecer embaixo da
+     competencia: e a mesma informacao (o tempo e calculado a partir dela) e
+     assim sobram ~125px de largura para o nome do cliente e o reu.
+     Ordenar por competencia ja ordena por tempo pendente — sao a mesma fila,
+     so que ao contrario; o proprio clique no cabecalho inverte. */
   const cols=isGestao
-    ? ['C.P.','Cliente','CPF','Processo','Réu','Competência','Tempo pendente','ADV','Valor','Status','']
+    ? ['C.P.','Cliente','CPF','Processo','Réu','Competência','ADV','Valor','Status','']
     : ['C.P.','Cliente','CPF','Processo','Réu','Competência','ADV','Status','OBS',''];
-  const sortable={Cliente:'nome',CPF:'cpf',Réu:'reu',Competência:'comp','Tempo pendente':'meses',ADV:'grupo',Valor:'valor'};
+  const sortable={Cliente:'nome',CPF:'cpf',Réu:'reu',Competência:'comp',ADV:'grupo',Valor:'valor'};
+  const dicas={Competência:isGestao
+    ? 'Mês de referência do lançamento, com o tempo pendente embaixo. Clique para ordenar do mais antigo para o mais novo (e de novo para inverter).'
+    : 'Mês de referência do lançamento. Clique para ordenar.'};
   let h='<table><thead><tr>';
-  cols.forEach(c=>{const sk=sortable[c];h+='<th class="'+(sk?'':'nosort')+'"'+(sk?' onclick="setSort(\''+sk+'\')"':'')+'>'+c+(sk?' <span class="arr">▲▼</span>':'')+'</th>';});
+  cols.forEach(c=>{const sk=sortable[c],dc=dicas[c];
+    h+='<th class="'+(sk?'':'nosort')+'"'+(dc?' title="'+dc+'"':'')
+      +(sk?' onclick="setSort(\''+sk+'\')"':'')+'>'+c+(sk?' <span class="arr">▲▼</span>':'')+'</th>';});
   h+='</tr></thead><tbody>';
   recs.forEach(r=>{h+=rowHTML(r);});
   h+='</tbody></table>';
@@ -1117,10 +1129,9 @@ function rowHTML(r){
     +'<td data-l="CPF"><span class="cpf mono">'+esc(r.cpf||'—')+'</span></td>'
     +'<td data-l="Processo">'+proc+'</td>'
     +'<td data-l="Réu"><span class="reu">'+esc(r.reu||'—')+'</span></td>'
-    +'<td data-l="Competência"><span class="comp">'+esc(r.competencia)+'</span></td>';
-  if(isGestao){
-    cells+='<td data-l="Tempo pendente"><span class="ag '+tempoCls(m)+'">'+tempoLabel(m)+'</span></td>';
-  }
+    +'<td data-l="Competência"><span class="comp">'+esc(r.competencia)+'</span>'
+      +(isGestao?'<div class="tp"><span class="ag '+tempoCls(m)+'">'+tempoLabel(m)+'</span></div>':'')
+      +'</td>';
   cells+='<td data-l="ADV"><span class="gtag g-'+gcls(r.grupo)+'">'+esc(r.grupo)+'</span></td>';
   if(isGestao){
     cells+='<td data-l="Valor"><span class="val mono">'+brl(r.valor_num||parseBR(r.valor))+'</span>'+abateHTML(r)+'</td>';
