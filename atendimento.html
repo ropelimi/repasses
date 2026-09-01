@@ -134,6 +134,9 @@ tbody tr.pago .cli,tbody tr.pago .val{color:var(--txt2)}
 [data-theme="dark"] .stbtn.quit{background:var(--verde-bg);color:var(--verde);border-color:#1f5133}
 [data-theme="dark"] .stbtn.aberto{background:var(--hover2);color:var(--txt2);border-color:var(--borda)}
 .prev{display:inline-block;font-size:11px;font-weight:700;color:var(--azul);white-space:nowrap}
+/* a previsao fica EMBAIXO da etiqueta de status, nao ao lado: lado a lado ela
+   sozinha exigia ~90px a mais de largura na coluna Status */
+.prevw{margin-top:3px}
 .liq{font-size:10.5px;font-weight:700;color:var(--azul2);white-space:nowrap;margin-top:2px}
 /* tempo pendente logo abaixo da competencia (nao e mais coluna separada) */
 .tp{margin-top:3px}
@@ -496,6 +499,50 @@ const MESA=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','D
 const hoje=new Date();
 function norm(s){return (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();}
 function parseComp(c){const p=(c||'').split('/');return new Date(parseInt(p[1],10),MESN[p[0]]||0,1);}
+/* ---------- Previsao do "dia 20 util", so para MOSTRAR ----------
+   Espelho fiel das funcoes do banco: pascoa_br, eh_feriado_br,
+   dia_util_anterior e previsao_dia20. Serve para o usuario ver a data
+   antes de salvar; quem grava de verdade continua sendo o trigger.
+   Se a regra mudar no banco, mude aqui tambem. */
+function pascoaBR(ano){
+  const a=ano%19, b=Math.floor(ano/100), c=ano%100;
+  const d=Math.floor(b/4), e=b%4, f=Math.floor((b+8)/25);
+  const g=Math.floor((b-f+1)/3);
+  const hh=(19*a+b-d-g+15)%30;
+  const i=Math.floor(c/4), k=c%4;
+  const l=(32+2*e+2*i-hh-k)%7;
+  const m=Math.floor((a+11*hh+22*l)/451);
+  return new Date(ano, Math.floor((hh+l-7*m+114)/31)-1, ((hh+l-7*m+114)%31)+1);
+}
+/* soma dias sem usar milissegundos, para nao escorregar em horario de verao */
+function maisDias(d,n){return new Date(d.getFullYear(),d.getMonth(),d.getDate()+n);}
+function dataISO(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+const FERIADOS_FIXOS=['01-01','01-25','04-21','05-01','07-09','09-07','10-12','11-02','11-15','11-20','12-25'];
+function ehFeriadoBR(d){
+  const md=String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  if(FERIADOS_FIXOS.indexOf(md)>=0)return true;
+  const p=pascoaBR(d.getFullYear()), alvo=dataISO(d);
+  /* Carnaval (segunda e terca), Sexta-feira Santa e Corpus Christi */
+  return [-48,-47,-2,60].some(n=>dataISO(maisDias(p,n))===alvo);
+}
+function diaUtilAnterior(d){
+  let x=new Date(d.getFullYear(),d.getMonth(),d.getDate()), n=0;
+  while((x.getDay()===0||x.getDay()===6||ehFeriadoBR(x))&&n<30){x=maisDias(x,-1);n++;}
+  return x;
+}
+/* Ate o dia 15 vai para o dia 20 do proprio mes; do dia 16 em diante,
+   para o dia 20 do mes seguinte. Caindo em fim de semana ou feriado,
+   volta para o dia util anterior. */
+function previsaoDia20(base){
+  const b=base||new Date();
+  const alvo=(b.getDate()<=15)
+    ? new Date(b.getFullYear(),b.getMonth(),20)
+    : new Date(b.getFullYear(),b.getMonth()+1,20);
+  return dataISO(diaUtilAnterior(alvo));
+}
+
 function mesesPend(c){const d=parseComp(c);return (hoje.getFullYear()-d.getFullYear())*12+(hoje.getMonth()-d.getMonth());}
 function tempoCls(m){if(m<=3)return'verde';if(m<=6)return'amarelo';if(m<=12)return'laranja';return'vermelho';}
 function tempoLabel(m){if(m<0)return'A vencer';if(m===0)return'Este mês';if(m<12)return m+(m===1?' mês':' meses');const a=Math.floor(m/12),r=m%12;let t=a+(a===1?' ano':' anos');if(r>0)t+=' e '+r+(r===1?' mês':' meses');return t;}
@@ -1101,9 +1148,16 @@ function renderFlat(recs){
   const dicas={Competência:isGestao
     ? 'Mês de referência do lançamento, com o tempo pendente embaixo. Clique para ordenar do mais antigo para o mais novo (e de novo para inverter).'
     : 'Mês de referência do lançamento. Clique para ordenar.'};
+  /* Sem estas dicas de largura o navegador reparte a sobra em proporcao ao
+     texto mais comprido de cada coluna — e a razao social do reu (longa e
+     numa palavra so) acabava ficando MAIOR que o nome do cliente. O nome do
+     cliente e o que mais se le, entao ele leva a maior fatia. */
+  const larg=isGestao
+    ? {Cliente:'19%','Réu':'14%'}
+    : {Cliente:'22%','Réu':'17%'};
   let h='<table><thead><tr>';
-  cols.forEach(c=>{const sk=sortable[c],dc=dicas[c];
-    h+='<th class="'+(sk?'':'nosort')+'"'+(dc?' title="'+dc+'"':'')
+  cols.forEach(c=>{const sk=sortable[c],dc=dicas[c],lg=larg[c];
+    h+='<th class="'+(sk?'':'nosort')+'"'+(dc?' title="'+dc+'"':'')+(lg?' style="width:'+lg+'"':'')
       +(sk?' onclick="setSort(\''+sk+'\')"':'')+'>'+c+(sk?' <span class="arr">▲▼</span>':'')+'</th>';});
   h+='</tr></thead><tbody>';
   recs.forEach(r=>{h+=rowHTML(r);});
@@ -1142,7 +1196,8 @@ function rowHTML(r){
         /* na gestao o valor ja aparece na coluna Valor; no atendimento, aqui */
         +((!isGestao&&r.valor_num!=null)?'<div class="devval">'+brl(r.valor_num)+'</div>':'')
         +'<div style="margin-top:4px">'+quitBtn(r)+'</div>'
-      : stt+((r.previsao_pagamento&&!r.pago)?'<div class="prev" title="Previsão de pagamento">prev. '+dataBR(r.previsao_pagamento)+'</div>':''))
+      : stt+((r.previsao_pagamento&&!r.pago)
+          ?'<div class="prevw"><span class="prev" title="Previsão de pagamento">prev. '+dataBR(r.previsao_pagamento)+'</span></div>':''))
     +'</td>';
   if(!isGestao){
     const obsShort=r.obs?esc(r.obs.length>30?r.obs.slice(0,30)+'…':r.obs):'<span style="color:#aab">—</span>';
@@ -1511,15 +1566,15 @@ function openModal(id){
       +'<option value="devedor"'+(r.natureza==='devedor'?' selected':'')+'>Saldo devedor (o cliente deve ao escritório)</option>'
     +'</select></div>'
     +'<div class="fld full" id="m_tdWrap" style="display:'+(r.natureza==='devedor'?'flex':'none')+'">'
-      +'<label>Tipo do saldo devedor</label><select id="m_td">'+tdOpts+'</select>'
-      +'<div class="hint">Saldo devedor abate do valor consolidado do cliente e não entra no Financeiro.</div></div>'
-    +'<div class="fld full" id="m_quitWrap" style="display:'+(r.natureza==='devedor'?'flex':'none')+';flex-direction:row;align-items:center;gap:8px">'
-      +(isGestao
-        ? '<input type="checkbox" id="m_quit" class="cpbox" '+(r.devedor_quitado?'checked':'')+'>'
-          +'<label style="text-transform:none;font-size:13px;color:#444">Saldo quitado — para de abater do cliente</label>'
-        : '<span class="hint" style="margin:0">'+(r.devedor_quitado?'Este saldo já está quitado.':'Saldo em aberto.')
-          +' Somente a gestão altera.</span>')
-    +'</div>'
+      +'<label>Tipo do saldo devedor</label><select id="m_td">'+tdOpts+'</select></div>'
+    /* a caixinha de quitar so existe para a gestao; para o atendimento nao ha
+       o que mostrar aqui (a situacao ja aparece na lista) */
+    +(isGestao
+      ? ('<div class="fld full" id="m_quitWrap" style="display:'+(r.natureza==='devedor'?'flex':'none')+';flex-direction:row;align-items:center;gap:8px">'
+        +'<input type="checkbox" id="m_quit" class="cpbox" '+(r.devedor_quitado?'checked':'')+'>'
+        +'<label style="text-transform:none;font-size:13px;color:#444">Saldo quitado — para de abater do cliente</label>'
+        +'</div>')
+      : '')
     +fldAC('full','Nome completo do cliente','nome',r.nome||'','Digite 2 letras e escolha o cliente já cadastrado')
     +fldAC('','CPF','cpf',r.cpf||'','Digite 3 números para achar o cliente pelo CPF')
     +fldAC('','Nº do processo','processo',r.processo||'','')
@@ -1534,6 +1589,7 @@ function openModal(id){
     +((r.nome_norm&&cliInfo(r.nome_norm).cp)?'<div class="fld full"><div class="hint">Este cliente inteiro já está marcado como C.P., então todos os processos dele aparecem marcados.</div></div>':'');
   document.getElementById('mBody').innerHTML=html;
   natChanged();
+  statusChanged(false);   /* so acerta a dica; nao mexe no que ja estava salvo */
   document.getElementById('ov').classList.add('show');
 }
 function fldM(extra,label,key,val){return '<div class="fld '+extra+'"><label>'+label+'</label><input id="m_'+key+'" value="'+esc(val)+'"></div>';}
@@ -1567,13 +1623,33 @@ function statusFieldM(r){
   let ops='<option value="pendente"'+(atual==='pendente'?' selected':'')+'>PENDENTE</option>'
          +'<option value="agp"'+(atual==='agp'?' selected':'')+'>AG. PAGAMENTO</option>';
   if(isGestao)ops+='<option value="pago"'+(atual==='pago'?' selected':'')+'>PAGO</option>';
-  return '<div class="fld" id="m_stFld"><label>Status</label><select id="m_status">'+ops+'</select></div>';
+  return '<div class="fld" id="m_stFld"><label>Status</label>'
+    +'<select id="m_status" onchange="statusChanged(true)">'+ops+'</select></div>';
+}
+/* Mostra a data do repasse assim que o status vira AG. PAGAMENTO, para o
+   usuario saber para quando ficou programado antes mesmo de salvar.
+   E a mesma conta que o banco faz; o banco continua sendo quem decide. */
+function statusChanged(mudouAgora){
+  const st=document.getElementById('m_status');
+  const pv=document.getElementById('m_prev');
+  const dica=document.getElementById('m_prevHint');
+  if(!st||!pv)return;
+  if(st.value==='agp'){
+    if(!pv.value)pv.value=previsaoDia20();
+    if(dica)dica.innerHTML='Programado para <b>'+dataBR(pv.value)+'</b> — o próximo dia 20 útil.'
+      +(isGestao?' Você pode trocar a data.':' Somente a gestão altera esta data.');
+  }else if(st.value==='pendente'){
+    if(mudouAgora)pv.value='';
+    if(dica)dica.textContent='Enquanto estiver PENDENTE o lançamento não tem data programada.';
+  }else{
+    if(dica)dica.textContent='A data programada fica guardada como histórico do pagamento.';
+  }
 }
 function prevFieldM(r){
   const val=r.previsao_pagamento||'';
   return '<div class="fld" id="m_prevFld"><label>Previsão de pagamento</label>'
-    +'<input type="date" id="m_prev" value="'+esc(val)+'"'+(isGestao?'':' disabled')+'>'
-    +'<div class="hint">'+(isGestao
+    +'<input type="date" id="m_prev" value="'+esc(val)+'" onchange="statusChanged(false)"'+(isGestao?'':' disabled')+'>'
+    +'<div class="hint" id="m_prevHint">'+(isGestao
         ?'Preenchida sozinha no próximo dia 20 útil ao marcar AG. PAGAMENTO. Você pode trocar.'
         :'Preenchida sozinha. Somente a gestão altera esta data.')+'</div></div>';
 }
