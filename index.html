@@ -19,6 +19,8 @@
   --rosa:#8b2252;--rosa-bg:#fbe9f1;
   --vermelho:#c0392b;--vermelho-bg:#fdecea;
   --amarelo:#9a7400;--amarelo-bg:#fff6df;
+  --lima:#4d7c0f;--lima-bg:#eef7dd;
+  --magenta:#a21caf;--magenta-bg:#fbe4fb;
   --cinza:#f0f2f5;--borda:#e2e6ea;--cinza2:#f8f9fb;
   --pago-bg:#f0fdf4;--agp-bg:#f3f8fd;--agp-borda:#cfe0f2;
 }
@@ -114,6 +116,9 @@ tbody tr.pago .cli,tbody tr.pago .val{color:var(--txt2)}
 .g-nardon{background:var(--marrom-bg);color:var(--marrom)}
 .g-jlm{background:#e7e4fb;color:#5a4ad1}
 .g-me{background:var(--laranja-bg);color:var(--laranja)}
+.g-isabelle{background:var(--amarelo-bg);color:var(--amarelo)}
+.g-deborah{background:var(--lima-bg);color:var(--lima)}
+.g-gleisy{background:var(--magenta-bg);color:var(--magenta)}
 .val{font-weight:700;color:var(--txt);white-space:nowrap;text-align:right}
 .ag{display:inline-block;padding:2px 9px;border-radius:7px;font-size:11px;font-weight:700;white-space:nowrap}
 .ag.verde{background:var(--verde-bg);color:var(--verde)}
@@ -265,6 +270,8 @@ tbody tr.pago .tp{opacity:.65}
   --rosa:#e88ab4;--rosa-bg:#331624;
   --vermelho:#f87171;--vermelho-bg:#3a1615;
   --amarelo:#e3b341;--amarelo-bg:#2f2610;
+  --lima:#a3d14a;--lima-bg:#22300f;
+  --magenta:#e79bef;--magenta-bg:#33163a;
 }
 [data-theme="dark"] header{background:linear-gradient(135deg,#0c1b2c,#1c3f63)}
 [data-theme="dark"] .login-ov{background:linear-gradient(135deg,#0c1b2c,#1c3f63)}
@@ -546,7 +553,9 @@ function previsaoDia20(base){
 function mesesPend(c){const d=parseComp(c);return (hoje.getFullYear()-d.getFullYear())*12+(hoje.getMonth()-d.getMonth());}
 function tempoCls(m){if(m<=3)return'verde';if(m<=6)return'amarelo';if(m<=12)return'laranja';return'vermelho';}
 function tempoLabel(m){if(m<0)return'A vencer';if(m===0)return'Este mês';if(m<12)return m+(m===1?' mês':' meses');const a=Math.floor(m/12),r=m%12;let t=a+(a===1?' ano':' anos');if(r>0)t+=' e '+r+(r===1?' mês':' meses');return t;}
-function gcls(g){return {Max:'max',Mariah:'mariah',Jezieli:'jezieli',Yunes:'yunes',Kaled:'kaled',Nardon:'nardon',JLM:'jlm','Máximo Êxito':'me'}[g]||'max';}
+function gcls(g){return {Max:'max',Mariah:'mariah',Jezieli:'jezieli',Yunes:'yunes',Kaled:'kaled',
+  Isabelle:'isabelle','Déborah':'deborah',Gleisy:'gleisy',
+  Nardon:'nardon',JLM:'jlm','Máximo Êxito':'me'}[g]||'max';}
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function brl(v){return 'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function parseBR(s){return parseFloat(String(s).replace(/\./g,'').replace(',','.'))||0;}
@@ -1112,7 +1121,8 @@ function card(cls,l,v,acao,ativo,dica){
 function cardStatus(s){ setStatus(filters.status===s?'todos':s); }
 function cardView(v){ setView(filters.view===v?'flat':v); }
 
-const GORDER=['Max','Mariah','Jezieli','Yunes','Kaled','Nardon','JLM','Máximo Êxito'];
+const GORDER=['Max','Mariah','Jezieli','Yunes','Kaled','Isabelle','Déborah','Gleisy',
+               'Nardon','JLM','Máximo Êxito'];
 const TIPOS_DEV=['Custas','Má-Fé','Réu','Indenização','Escritório','Estado'];
 function renderGroupChips(all){
   const cont=document.getElementById('grpChips');
@@ -1665,7 +1675,9 @@ async function saveModal(){
   const g=v('m_grupo');
   const mes=v('m_mes'),ano=v('m_ano');
   const comp=mes+'/'+ano;
-  const advMap={Max:'Max',Mariah:'Mariah',Jezieli:'Jezieli',Yunes:'Yunes',Kaled:'Kaled',Nardon:'Max',JLM:'Max','Máximo Êxito':'Max'};
+  const advMap={Max:'Max',Mariah:'Mariah',Jezieli:'Jezieli',Yunes:'Yunes',Kaled:'Kaled',
+                Isabelle:'Isabelle','Déborah':'Déborah',Gleisy:'Gleisy',
+                Nardon:'Max',JLM:'Max','Máximo Êxito':'Max'};
   const tipoMap={Nardon:'nardon',JLM:'jlm','Máximo Êxito':'maximo_exito'};
   const nome=v('m_nome').trim();
   if(!nome){toast('Informe o nome do cliente','err');return;}

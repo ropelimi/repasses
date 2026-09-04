@@ -58,7 +58,14 @@ Os dois leem/gravam a mesma base: o que um faz, o outro vê (atualização autom
 
 `pago` manda: o trigger `trg_normaliza_status` zera `ag_pagamento` sempre que `pago` vira `true`, então a quarta combinação nunca existe no banco.
 
-Grupos (na tela o rótulo é **ADV**, desde 31/08/2026; a coluna no banco continua `grupo`): Max, Mariah, Jezieli, Yunes, Kaled, Nardon, JLM, Máximo Êxito.
+ADV (rótulo desde 31/08/2026; a coluna no banco continua se chamando `grupo`), **11 opções** desde 04/09/2026:
+
+- **Advogados:** Max, Mariah, Jezieli, Yunes, Kaled, **Isabelle**, **Déborah**, **Gleisy** — cada um responde pelos próprios casos (`advogado` = o próprio nome, `tipo` = `cliente`).
+- **Grupos parceiros:** Nardon, JLM, Máximo Êxito — apontam para o Max (`advogado` = `Max`) e têm `tipo` próprio (`nardon`, `jlm`, `maximo_exito`).
+
+A ordem dessa lista (`GORDER`) é a que aparece nos chips de filtro e no formulário: advogados primeiro, grupos parceiros depois. **Não há restrição no banco** — `grupo` é texto livre, então acrescentar um ADV é mudança só de tela, sem migração. Cada ADV tem uma cor de etiqueta própria (`gcls()` → `.g-*`); as novas usam variáveis definidas nos **dois temas** (`--amarelo`, `--lima`, `--magenta`).
+
+> As cores do **Kaled** e do **JLM** ainda são hexadecimais fixas, então no modo escuro elas continuam com fundo claro. Não incomoda a leitura e não foi mexido para não trocar cores que o pessoal já reconhece; se um dia for arrumar, basta criar `--teal` e `--indigo` nos dois temas, como foi feito com as três novas.
 
 ### Tabela `profiles`
 `id` (uuid → `auth.users`, **ON DELETE CASCADE**), `email` (text), `nome` (text), `perfil` (text NOT NULL, default `'atendimento'`, valores `gestao` | `atendimento`).
