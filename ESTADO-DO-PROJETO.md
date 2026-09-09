@@ -172,7 +172,7 @@ Conferido: alterado em **05/09/2026** → previsão **18/09/2026**, porque 20/09
 
 ## 4. Funcionalidades prontas
 
-1. **Lista de lançamentos** — busca (ignora acentos), filtros por status (Todos / Pendentes / **Ag. pagamento** / Pagos), ano, mês e grupo, "Só C.P.", ordenação, visão *Por lançamento* e *Por cliente* (consolidada).
+1. **Lista de lançamentos** — busca (ignora acentos), filtros por status (Todos / Pendentes / **Ag. pagamento** / Pagos), ano, mês, **intervalo de competência** (§4.10) e ADV, "Só C.P.", ordenação, visão *Por lançamento* e *Por cliente* (consolidada).
 2. **Tempo pendente** (só gestão) — calculado pela **competência**: ≤3m verde, 4–6 amarelo, 7–12 laranja, >12 vermelho. Desde 01/09/2026 aparece como pastilha **embaixo da competência**, na mesma coluna, e não mais numa coluna própria (ver §10). Continua com linha própria na ficha de Detalhes / OBS e coluna própria no CSV.
 3. **Baixa de pagamento** (**só gestão**) — data e valor pago **já vêm preenchidos**: a data com hoje e o valor com **exatamente o valor lançado**, para não haver erro de digitação. Os dois continuam editáveis, para o caso de pagamento parcial. Ao salvar, marca PAGO e limpa o "ag. pagamento".
 4. **Três status: PENDENTE → AG. PAGAMENTO → PAGO** (atualizado em 10/08/2026)
@@ -232,6 +232,18 @@ No **Novo lançamento**, o primeiro campo é **Tipo de lançamento**: *Repasse a
 - Na **ficha do cliente** o valor sai **abatido**: repasse de R$ 3.000 com custa de R$ 500 mostra **R$ 2.500**, com a conta escrita embaixo.
 - **Não entra no Financeiro** (decisão de 30/08/2026: o Financeiro é o dinheiro que saiu para o cliente) e **não entra no recibo de quitação**.
 - Nos cartões do topo: **"A repassar (líquido)"** já é repasses − devedores, e um cartão **"Saldo devedor"** aparece quando existe algum em aberto. Na **gestão** esse cartão mostra o **valor**; no **atendimento**, a **quantidade de lançamentos** (mudança de 31/08/2026, a pedido — o atendimento continua vendo o valor de cada saldo devedor na lista, na ficha e no cartão do cliente, só não vê o total somado).
+
+### 4.10 Filtro por intervalo de competência (NOVO em 09/09/2026)
+Além dos seletores de **Ano** e **Mês** (que filtram um ano ou um mês por vez), o botão **Intervalo** abre uma barra com *Competência de \[mês/ano\] até \[mês/ano\]*, mais os atalhos **Últimos 12 meses**, **Este ano**, **Ano passado** e **Limpar**.
+
+- O filtro entra dentro do `applyFilters()`, então vale de uma vez para as três visões — *Por lançamento*, *Por cliente* e *Financeiro* — e para os cartões do topo, sem precisar repetir a regra em cada tela.
+- A competência é guardada em duas colunas (`ano` e `mes`). A comparação monta a chave `'AAAA-MM'`, que é exatamente o formato que o `<input type="month">` devolve — comparar texto nesse formato já dá a ordem certa, sem montar data. É o `compChave(r)`.
+- **Enquanto o intervalo vale, os seletores de Ano e Mês ficam desabilitados** e são ignorados pelo filtro. Os dois mecanismos juntos só confundiriam ("por que sumiu tudo?").
+- **Fechar a barra limpa o intervalo**, de propósito: filtro ligado e escondido é a receita de "sumiram lançamentos e ninguém sabe por quê". O botão fica aceso enquanto a barra está aberta e a barra mostra o resumo em português (*"Mostrando Mar/2025 – Set/2025."*), porque o `<input type="month">` é desenhado pelo navegador e aparece no idioma dele.
+- Deixar só uma ponta é válido e a barra avisa (*"Sem fim: pega de Out/2026 em diante."*). Escolhendo o fim antes do início, a outra ponta é empurrada junto, em vez de devolver lista vazia sem explicação.
+- **Custo de largura:** o botão novo somou 98px à barra de controles e empurrava os botões de visão para uma segunda linha a partir de 1366px. Devolvidos com três cortes cosméticos — `.seg button` de 13 para 11px de padding, `.search` com `min-width` de 210 para 170px e o rótulo "Intervalo…" sem as reticências. **A barra volta a caber numa linha só a partir de 1247px** (era 1366px com o botão largo).
+
+> O **Financeiro** já tinha o seu próprio intervalo (`finDe` / `finAte`), mas sobre a **data de pagamento**. São coisas diferentes e convivem: um filtra por competência, o outro por quando o dinheiro saiu.
 
 ### 4.9 Saldo quitado (NOVO em 31/08/2026)
 Quando o caso é resolvido, a gestão dá o saldo devedor por **quitado** — ele **para de abater** do cliente, mas **continua no histórico**.

@@ -59,7 +59,10 @@ header{background:linear-gradient(135deg,#16314e,#2d6a9f);color:#fff;padding:14p
 .controls{background:var(--surface);border-bottom:1px solid var(--borda);padding:11px 14px;display:flex;flex-direction:column;gap:9px;position:sticky;top:62px;z-index:30}
 .crow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .clabel{font-size:10px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}
-.search{display:flex;align-items:center;background:var(--cinza2);border:1px solid var(--borda);border-radius:9px;padding:7px 12px;gap:7px;flex:1;min-width:210px;max-width:380px}
+.search{display:flex;align-items:center;background:var(--cinza2);border:1px solid var(--borda);border-radius:9px;padding:7px 12px;gap:7px;flex:1;min-width:170px;max-width:380px}
+/* 170px e o minimo que deixa a barra de controles caber numa linha so a
+   1280px depois que o botao "Intervalo" entrou. Como e flex:1, a busca volta
+   a crescer ate 380px assim que sobra espaco. */
 .search input{border:none;background:transparent;outline:none;font-size:13px;width:100%;color:var(--txt)}
 .search svg{width:15px;height:15px;color:var(--txt3);flex-shrink:0}
 .chip{padding:6px 13px;border:1px solid var(--borda);border-radius:20px;background:var(--cinza2);cursor:pointer;font-size:12px;font-weight:600;color:var(--txt2);transition:.12s;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
@@ -77,7 +80,7 @@ header{background:linear-gradient(135deg,#16314e,#2d6a9f);color:#fff;padding:14p
 .chip.on.me{background:var(--laranja);border-color:var(--laranja)}
 .chip.on.cp{background:var(--vermelho);border-color:var(--vermelho)}
 .seg{display:inline-flex;border:1px solid var(--borda);border-radius:9px;overflow:hidden}
-.seg button{border:none;background:var(--surface);padding:7px 13px;font-size:12px;font-weight:600;color:var(--txt2);cursor:pointer}
+.seg button{border:none;background:var(--surface);padding:7px 11px;font-size:12px;font-weight:600;color:var(--txt2);cursor:pointer}
 .seg button.on{background:var(--azul2);color:#fff}
 select{border:1px solid var(--borda);border-radius:8px;padding:7px 9px;font-size:12px;background:var(--surface);color:var(--txt2);cursor:pointer;font-weight:600}
 
@@ -329,6 +332,11 @@ tbody tr.pago .tp{opacity:.65}
 /* ===== NOVOS COMPONENTES ===== */
 .finbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .finbar input[type=date]{border:1px solid var(--borda);border-radius:8px;padding:6px 9px;font-size:12px;background:var(--surface);color:var(--txt)}
+/* barra do intervalo de competencia (mesma pegada da barra do Financeiro) */
+#compRow input[type=month]{border:1px solid var(--borda);border-radius:8px;padding:6px 9px;font-size:12px;background:var(--surface);color:var(--txt)}
+#compRow .aviso{font-size:11.5px;font-weight:600;color:var(--vermelho)}
+#compRow .resumo{font-size:11.5px;font-weight:700;color:var(--azul2)}
+select:disabled{opacity:.45;cursor:not-allowed}
 .fincards{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
 .fincard{flex:1;min-width:150px;background:var(--surface);border:1px solid var(--borda);border-radius:12px;padding:13px 16px}
 .fincard .fv{font-size:22px;font-weight:800;color:var(--verde);line-height:1.1}
@@ -403,12 +411,25 @@ tfoot td{background:var(--thead-bg);border-top:2px solid var(--borda);border-bot
     </div>
     <select id="ano" onchange="render()"></select>
     <select id="mes" onchange="render()"></select>
+    <button class="chip" id="intToggle" onclick="toggleIntervalo()"
+      title="Escolher um intervalo de competências, de um mês/ano até outro">Intervalo</button>
     <button class="chip cp" id="cpToggle" onclick="toggleCP()">Só C.P.</button>
     <div class="seg" id="segView" style="margin-left:auto">
       <button data-v="flat" class="on" onclick="setView('flat')">Por lançamento</button>
       <button data-v="cli" onclick="setView('cli')">Por cliente</button>
       <button data-v="fin" id="btnFin" onclick="setView('fin')">Financeiro</button>
     </div>
+  </div>
+  <div class="crow finbar" id="compRow" style="display:none">
+    <span class="clabel">Competência de:</span>
+    <input type="month" id="compDe" onchange="compChanged('de')">
+    <span class="clabel">até:</span>
+    <input type="month" id="compAte" onchange="compChanged('ate')">
+    <button class="chip" onclick="compPreset('12m')">Últimos 12 meses</button>
+    <button class="chip" onclick="compPreset('ano')">Este ano</button>
+    <button class="chip" onclick="compPreset('ant')">Ano passado</button>
+    <button class="chip" onclick="compLimpa()">Limpar</button>
+    <span class="aviso" id="compAviso" style="display:none"></span>
   </div>
   <div class="crow" id="grpChips"></div>
   <div class="crow finbar" id="finRow" style="display:none">
@@ -997,14 +1018,94 @@ function setStatus(s){
 function setView(v){filters.view=v;document.querySelectorAll('#segView button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
   document.getElementById('finRow').style.display=(v==='fin')?'flex':'none';render();}
 function toggleCP(){filters.cp=!filters.cp;document.getElementById('cpToggle').classList.toggle('on',filters.cp);render();}
+
+/* ---------- intervalo de competencia ----------
+   A competencia e guardada em duas colunas (ano e mes), entao a comparacao e
+   feita montando a chave 'AAAA-MM' — que e exatamente o formato que o
+   <input type="month"> devolve. Comparar texto nesse formato ja da a ordem
+   certa, sem precisar montar data.
+   Enquanto o intervalo esta valendo, os seletores de Ano e Mes ficam
+   desligados: os dois juntos so confundiriam. */
+function compChave(r){return String(r.ano)+'-'+String(r.mes).padStart(2,'0');}
+function intervaloComp(){
+  const de=document.getElementById('compDe'), ate=document.getElementById('compAte');
+  return {de:(de&&de.value)||'', ate:(ate&&ate.value)||''};
+}
+function intervaloAtivo(){const i=intervaloComp();return !!(i.de||i.ate);}
+function toggleIntervalo(){
+  const row=document.getElementById('compRow');
+  const abrindo=row.style.display==='none';
+  row.style.display=abrindo?'flex':'none';
+  /* Fechar SEMPRE limpa: filtro ligado e escondido e a receita de "sumiram
+     lancamentos e ninguem sabe por que". */
+  if(!abrindo)compLimpa();
+  else{document.getElementById('intToggle').classList.add('on');sincIntervalo();
+       const c=document.getElementById('compDe'); if(c&&c.focus)c.focus();}
+}
+function compLimpa(){
+  const de=document.getElementById('compDe'), ate=document.getElementById('compAte');
+  if(de)de.value=''; if(ate)ate.value='';
+  sincIntervalo(); render();
+}
+/* Escolheu uma ponta maior que a outra? Empurra a outra junto, em vez de
+   devolver lista vazia sem explicacao. */
+function compChanged(qual){
+  const de=document.getElementById('compDe'), ate=document.getElementById('compAte');
+  if(de.value&&ate.value&&de.value>ate.value){
+    if(qual==='de')ate.value=de.value; else de.value=ate.value;
+  }
+  sincIntervalo(); render();
+}
+function compPreset(p){
+  const d=new Date(), mm=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0');
+  let de='',ate='';
+  if(p==='12m'){de=mm(new Date(d.getFullYear(),d.getMonth()-11,1));ate=mm(d);}
+  else if(p==='ano'){de=d.getFullYear()+'-01';ate=d.getFullYear()+'-12';}
+  else if(p==='ant'){de=(d.getFullYear()-1)+'-01';ate=(d.getFullYear()-1)+'-12';}
+  document.getElementById('compDe').value=de;
+  document.getElementById('compAte').value=ate;
+  sincIntervalo(); render();
+}
+function compRotulo(v){
+  if(!v)return '';
+  const p=v.split('-');
+  return MESA[Number(p[1])-1]+'/'+p[0];
+}
+function sincIntervalo(){
+  const i=intervaloComp(), ativo=!!(i.de||i.ate);
+  const bt=document.getElementById('intToggle');
+  const row=document.getElementById('compRow');
+  const av=document.getElementById('compAviso');
+  ['ano','mes'].forEach(function(id){
+    const el=document.getElementById(id);
+    if(!el)return;
+    el.disabled=ativo;
+    el.title=ativo?'Desligado enquanto o intervalo de competência estiver valendo.':'';
+  });
+  if(bt){
+    const aberta=row&&row.style.display!=='none';
+    bt.classList.toggle('on',ativo||aberta);
+    bt.title=ativo
+      ? ('Mostrando de '+(i.de?compRotulo(i.de):'o começo')+' até '+(i.ate?compRotulo(i.ate):'o fim')+'. Clique para desligar.')
+      : 'Escolher um intervalo de competências, de um mês/ano até outro';
+  }
+  if(av){
+    if(ativo&&!i.de)      {av.style.display='';av.className='aviso';av.textContent='Sem início: pega tudo até '+compRotulo(i.ate)+'.';}
+    else if(ativo&&!i.ate){av.style.display='';av.className='aviso';av.textContent='Sem fim: pega de '+compRotulo(i.de)+' em diante.';}
+    else if(ativo)        {av.style.display='';av.className='resumo';av.textContent='Mostrando '+compRotulo(i.de)+' – '+compRotulo(i.ate)+'.';}
+    else av.style.display='none';
+  }
+}
 function toggleGrupo(g){if(filters.grupos.has(g))filters.grupos.delete(g);else filters.grupos.add(g);render();}
 
 function applyFilters(recs,semStatus){
   const bruto=document.getElementById('q').value.trim();
   const q=norm(bruto);
   const qd=soDigitos(bruto);          /* so os numeros do que foi digitado */
-  const ano=document.getElementById('ano').value;
-  const mes=document.getElementById('mes').value;
+  const iv=intervaloComp(), temIv=!!(iv.de||iv.ate);
+  /* com intervalo valendo, os seletores de Ano e Mes ficam de fora */
+  const ano=temIv?'':document.getElementById('ano').value;
+  const mes=temIv?'':document.getElementById('mes').value;
   return recs.filter(r=>{
     /* Saldo devedor nao tem status: aparece em "Todos" e no filtro proprio. */
     if(!semStatus&&filters.status==='devedor'&&!ehDevedor(r))return false;
@@ -1020,6 +1121,11 @@ function applyFilters(recs,semStatus){
     if(filters.cp&&!ehCP(r))return false;
     if(ano&&String(r.ano)!==ano)return false;
     if(mes&&String(r.mes)!==mes)return false;
+    if(temIv){
+      const ch=compChave(r);
+      if(iv.de&&ch<iv.de)return false;
+      if(iv.ate&&ch>iv.ate)return false;
+    }
     if(bruto){
       /* Acha o CPF e o processo com ou sem pontos: compara o texto e, em
          paralelo, so os numeros dos dois lados. */
@@ -1785,6 +1891,7 @@ function buildFilterOptions(){
   document.getElementById('ano').innerHTML='<option value="">Todos os anos</option>'+anos.map(a=>'<option>'+a+'</option>').join('');
   document.getElementById('mes').innerHTML='<option value="">Todos os meses</option>'+MESA.map((m,i)=>'<option value="'+(i+1)+'">'+m+'</option>').join('');
   document.getElementById('ano').value=selA; document.getElementById('mes').value=selM;
+  sincIntervalo();
 }
 /* ---------- login / init ---------- */
 /* ===== Painel de Usuarios (somente gestao) ===== */
