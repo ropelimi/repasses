@@ -225,7 +225,9 @@ O ícone **$** (financeiro e baixa) continua existindo, **só na gestão**, sepa
 
 ### 4.4 Anexos (ícone de clipe)
 Botão de **clipe** com o número de arquivos: na linha do lançamento, na visão por cliente, na baixa de pagamento, na tabela do Financeiro e dentro do recibo ("Anexar recibo assinado").
-- Envia qualquer arquivo até **20 MB**, classificado como **Comprovante**, **Recibo assinado** ou **Documento**.
+- Envia qualquer arquivo até **20 MB**, classificado como **Recibo assinado**, **Comprovante de pagamento** ou **Documento** — nessa ordem.
+- **Recibo assinado vem marcado** ao abrir os anexos, por ser o mais comum; **Documento** fica por último (26/10/2026, a pedido). **Exceção:** o botão "Anexar comprovante" da baixa de pagamento abre já em **Comprovante de pagamento** — senão o comprovante seria salvo como recibo sem a pessoa perceber. É o terceiro parâmetro de `openAnex(tipo, id, cat)`.
+- A escolha fica guardada enquanto a janela está aberta (`anexCtx.cat`): enviar vários arquivos seguidos do mesmo tipo não obriga a remarcar a cada envio. Fechou e abriu de novo, volta para Recibo assinado.
 - Anexo de um processo aparece **no processo e na ficha do cliente**; anexo geral do cliente aparece **nos dois lugares também**.
 - **O atendimento anexa, vê e baixa** — inclusive comprovantes de pagamento, mesmo sem ter acesso ao Financeiro.
 - **Excluir:** a gestão apaga qualquer um; as demais pessoas só o que elas mesmas enviaram.
@@ -473,6 +475,7 @@ rollback;
 - **Bucket privado exige URL assinada.** `POST /storage/v1/object/sign/anexos/<caminho>` com `{"expiresIn":120}` devolve `{"signedURL":"/object/sign/..."}` — a URL final é `_URL + '/storage/v1' + signedURL`, mais `&download=<nome>` para baixar com o nome certo. Link direto não abre, e é isso que se quer: documento de cliente não fica público.
 - **Sessão vencida fazia o sistema insistir para sempre.** O `loadData` roda de 30 em 30 segundos; com o token vencido eram 73 recusas seguidas no log de 30/08/2026. Agora `sessaoCaiu()` reconhece o 401 e `sessaoExpirou()` para o relógio e traz a tela de login de volta, em vez de piscar erro vermelho a cada meio minuto.
 - **Temp table em teste com `set local role authenticated`** precisa de `grant all on _res to authenticated`, senão o teste falha com "permission denied for table _res" e parece que a policy é que quebrou.
+- **Nos testes de navegador, `sb` não pode ser trocado depois que a página carrega** — é uma `const` criada a partir de `window.supabase` (e, sem internet para o CDN, fica `null`, então todo envio para no começo sem erro nenhum). Para simular o banco, entregue um `window.supabase` falso **antes** da carga, com `page.addInitScript(...)`. Funções declaradas (`loadAnexos`, `persist`…) podem ser trocadas depois normalmente.
 - **No teste como atendimento, leia pela view, não pela tabela.** Um `select ... from public.repasses` rodando com `set local role authenticated` e um usuário de atendimento devolve **zero linhas** (a policy `repasses_gestao` barra), e a variável fica nula — o teste acusa falha onde o sistema está certo. Use `public.repasses_atendimento`.
 - **Caixinha de marcar dentro do modal esticava para 100%.** A regra `.modal-b .fld input{width:100%}` valia também para `input[type=checkbox]`, e o quadradinho ficava largo, jogando o rótulo para o meio da linha (o campo **C.P.** já sofria disso). Corrigido em 31/08/2026 com `.modal-b .fld input[type=checkbox]{width:18px;flex:none}`.
 
