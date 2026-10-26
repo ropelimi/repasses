@@ -166,6 +166,8 @@ tbody tr.pago .tp{opacity:.65}
 .fld textarea{min-width:260px;min-height:38px;resize:vertical}
 .fld input[type=date]{min-width:150px}
 .fld .vin{width:130px}
+/* campos de dinheiro: numero alinhado a direita, como numa calculadora */
+input.dinheiro{text-align:right;font-variant-numeric:tabular-nums}
 .savep{background:var(--verde);color:#fff;border:none;border-radius:8px;padding:8px 15px;font-size:12px;font-weight:700;cursor:pointer}
 .savep:hover{background:#19763f}
 
@@ -582,6 +584,45 @@ function brl(v){return 'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDi
 function parseBR(s){return parseFloat(String(s).replace(/\./g,'').replace(',','.'))||0;}
 function fmtBR(v){return Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
 
+/* ---------- Campo de dinheiro estilo caixa eletronico ----------
+   O usuario so digita numeros e a virgula vai andando sozinha:
+     1 -> 0,01   12 -> 0,12   123 -> 1,23   123456 -> 1.234,56
+   Os pontos de milhar sao montados na mao (e nao com toLocaleString) para
+   o resultado ser sempre o mesmo, em qualquer navegador. */
+function milhar(s){return String(s).replace(/\B(?=(\d{3})+(?!\d))/g,'.');}
+function mascaraValor(el){
+  let d=String(el.value||'').replace(/\D+/g,'').replace(/^0+/,'');
+  if(!d){el.value='';return;}
+  d=d.slice(0,13);                       /* ate 99 bilhoes: barra colagem de lixo */
+  while(d.length<3)d='0'+d;
+  el.value=milhar(String(Number(d.slice(0,-2))))+','+d.slice(-2);
+}
+/* Colar e diferente de digitar: "1.234", "1234.5" e "R$ 450" tem que virar
+   1.234,00 / 1.234,50 / 450,00 — e nao centavos. O ultimo separador so e
+   decimal se vier seguido de 1 ou 2 digitos. */
+function colaValor(ev,el){
+  const bruto=String((ev.clipboardData&&ev.clipboardData.getData('text'))||'');
+  const t=bruto.replace(/[^\d.,]/g,'');
+  if(!/\d/.test(t))return;
+  ev.preventDefault();
+  const i=Math.max(t.lastIndexOf(','),t.lastIndexOf('.'));
+  let inteiro=t, dec='';
+  if(i>=0&&(t.length-i-1)>=1&&(t.length-i-1)<=2){inteiro=t.slice(0,i);dec=t.slice(i+1);}
+  el.value=inteiro.replace(/\D+/g,'')+(dec+'00').slice(0,2);
+  mascaraValor(el);
+}
+/* Valor que ja vem do banco entra padronizado. Havia "1200" e "1051,23"
+   gravados (6 de 46 em 26/10/2026): crus, o primeiro digito digitado
+   embaralharia tudo ("1200"+"5" viraria 120,05). */
+function valorCampo(v){
+  if(v===null||v===undefined||String(v).trim()==='')return '';
+  return fmtBR(typeof v==='number'?v:parseBR(v));
+}
+function attrDinheiro(){
+  return ' class="dinheiro mono" inputmode="numeric" autocomplete="off" placeholder="0,00"'
+    +' oninput="mascaraValor(this)" onpaste="colaValor(event,this)"';
+}
+
 /* ---------- status: PENDENTE -> AG. PAGAMENTO -> PAGO ----------
    No banco sao duas colunas booleanas: 'pago' e 'ag_pagamento'.
    Regra: pago manda. Se pago=true o lancamento e PAGO (o banco zera ag_pagamento).
@@ -589,15 +630,21 @@ function fmtBR(v){return Number(v||0).toLocaleString('pt-BR',{minimumFractionDig
 function ehAg(r){return !r.pago && !!r.ag_pagamento;}
 function stCls(r){return r.pago?'pago':(ehAg(r)?'agp':'pend');}
 function stLabel(r){return r.pago?'PAGO':(ehAg(r)?'AG. PAGAMENTO':'PENDENTE');}
+/* O clique no status so alterna PENDENTE <-> AG. PAGAMENTO (26/10/2026).
+   PAGO nao entra no clique: marcar pago e desfazer pago sao feitos so pelo
+   formulario do lancamento ou pela baixa no Financeiro, onde ficam data e
+   valor pago — um clique errado nao pode registrar nem apagar pagamento. */
 function stNext(r){
-  if(r.pago)          return {pago:false,ag_pagamento:false}; // PAGO -> PENDENTE
-  if(r.ag_pagamento)  return {pago:true ,ag_pagamento:false}; // AG. PAGAMENTO -> PAGO
-  return                     {pago:false,ag_pagamento:true }; // PENDENTE -> AG. PAGAMENTO
+  if(r.pago)          return null;                             // PAGO: nao muda no clique
+  if(r.ag_pagamento)  return {pago:false,ag_pagamento:false};  // AG. PAGAMENTO -> PENDENTE
+  return                     {pago:false,ag_pagamento:true };  // PENDENTE -> AG. PAGAMENTO
 }
 function stBtn(r){
   const c=stCls(r), t=stLabel(r);
+  if(isGestao&&r.pago)
+    return '<span class="stbtn '+c+'" style="cursor:default" title="Pago. Para alterar, abra o lançamento em Editar.">'+t+'</span>';
   return isGestao
-    ? '<button class="stbtn '+c+'" onclick="togglePago('+jid(r)+')" title="Clique para mudar: PENDENTE → AG. PAGAMENTO → PAGO">'+t+'</button>'
+    ? '<button class="stbtn '+c+'" onclick="togglePago('+jid(r)+')" title="Clique para alternar entre PENDENTE e AG. PAGAMENTO. Para marcar PAGO, use Editar ou a baixa ($).">'+t+'</button>'
     : '<span class="stbtn '+c+'" style="cursor:default" title="Somente a gestao pode alterar o pagamento">'+t+'</span>';
 }
 
@@ -1339,7 +1386,9 @@ function expHTML(r){
       +(abate(r)?('<div class="fld" style="flex-basis:100%"><div class="apagar">A pagar: '+brl(abate(r).liquido)
           +' <small>'+brl(abate(r).bruto)+' menos '+brl(abate(r).desconto)+' de saldo devedor deste cliente</small></div></div>'):'')
       +'<div class="fld"><label>Data do pagamento</label><input type="date" id="dp_'+rid(r)+'" value="'+esc(r.data_pagamento||hojeISO())+'"></div>'
-      +'<div class="fld"><label>Valor pago</label><input class="vin mono" id="vp_'+rid(r)+'" value="'+esc(r.valor_pago||(r.valor_num!=null?fmtBR(valorAPagar(r)):''))+'" title="Já vem com o valor a pagar (o lançado, menos o saldo devedor). Altere só em caso de pagamento parcial."></div>'
+      +'<div class="fld"><label>Valor pago</label><input id="vp_'+rid(r)+'" value="'+esc(valorCampo(r.valor_pago||(r.valor_num!=null?valorAPagar(r):'')))+'"'
+        +attrDinheiro().replace('class="dinheiro mono"','class="vin dinheiro mono"')
+        +' title="Já vem com o valor a pagar (o lançado, menos o saldo devedor). Altere só em caso de pagamento parcial."></div>'
       +'<div class="fld" style="flex:1"><label>Observação</label><textarea id="ob_'+rid(r)+'" placeholder="Anotação para a equipe…">'+esc(r.obs||'')+'</textarea></div>'
       +'<button class="savep" onclick="savePag('+jid(r)+')">Salvar baixa</button>'
       +'<button class="btn" style="margin-left:4px" onclick="openAnex(\''+'lanc'+'\','+jid(r)+')">Anexar comprovante'
@@ -1454,18 +1503,18 @@ async function toggleCp(id){const r=findRec(id);if(!r)return;r.cp=!r.cp;render()
 async function togglePago(id){
   if(!isGestao){toast('Somente a gestao pode alterar o pagamento','err');return;}
   const r=findRec(id);if(!r)return;
-  const nx=stNext(r);                       // PENDENTE -> AG. PAGAMENTO -> PAGO -> PENDENTE
-  const patch={pago:nx.pago,ag_pagamento:nx.ag_pagamento};
-  if(nx.pago){
-    /* Ao marcar PAGO, ja preenche data de hoje e o valor exatamente como lancado. */
-    if(!r.data_pagamento)patch.data_pagamento=hojeISO();
-    if(!r.valor_pago)patch.valor_pago=fmtBR(valorAPagar(r));
-  }
-  if(!nx.pago&&!nx.ag_pagamento)patch.previsao_pagamento=null;
-  r.pago=nx.pago;r.ag_pagamento=nx.ag_pagamento;render();
+  const nx=stNext(r);                       // PENDENTE <-> AG. PAGAMENTO (PAGO nao muda no clique)
+  if(!nx){toast('Lançamento pago. Para alterar, abra em Editar.','err');return;}
+  const patch={pago:false,ag_pagamento:nx.ag_pagamento};
+  if(!nx.ag_pagamento)patch.previsao_pagamento=null;
+  r.ag_pagamento=nx.ag_pagamento;render();
   if(await persist(id,patch)){
-    toast(r.pago?'Marcado como PAGO':(r.ag_pagamento?'Marcado como AG. PAGAMENTO':'Reaberto como pendente'),'ok');
     await loadData();
+    /* depois de recarregar, a data e a que o banco gravou de fato */
+    const atual=findRec(id);
+    toast(nx.ag_pagamento
+      ? ('Marcado como AG. PAGAMENTO'+((atual&&atual.previsao_pagamento)?' — programado para '+dataBR(atual.previsao_pagamento):''))
+      : 'Voltou para PENDENTE','ok');
   }
 }
 function toggleExp(id){const el=document.getElementById('exp_'+cssid(id));if(el)el.style.display=el.style.display==='none'?'table-row':'none';}
@@ -1697,7 +1746,7 @@ function openModal(id){
     +fldAC('full','Réu','reu',r.reu||'','')
     +'<div class="fld"><label>ADV (advogado responsável)</label><select id="m_grupo">'+grpOpts+'</select></div>'
     +compFieldM(r)
-    +(isGestao?fldM('','Valor (R$)','valor', r.valor_num!=null?fmtBR(r.valor_num):''):'')
+    +(isGestao?fldValor('','Valor (R$)','valor', r.valor_num!=null?r.valor_num:''):'')
     +statusFieldM(r)
     +prevFieldM(r)
     +'<div class="fld full"><label>Observação</label><textarea id="m_obs">'+esc(r.obs||'')+'</textarea></div>'
@@ -1709,6 +1758,9 @@ function openModal(id){
   document.getElementById('ov').classList.add('show');
 }
 function fldM(extra,label,key,val){return '<div class="fld '+extra+'"><label>'+label+'</label><input id="m_'+key+'" value="'+esc(val)+'"></div>';}
+function fldValor(extra,label,key,val){
+  return '<div class="fld '+extra+'"><label>'+label+'</label><input id="m_'+key+'" value="'+esc(valorCampo(val))+'"'+attrDinheiro()+'></div>';
+}
 function fldAC(extra,label,key,val,dica){
   return '<div class="fld ac-wrap '+extra+'"><label>'+label+'</label>'
     +'<input id="m_'+key+'" value="'+esc(val)+'" autocomplete="off" spellcheck="false"'
