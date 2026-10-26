@@ -37,7 +37,7 @@ Os dois leem/gravam a mesma base: o que um faz, o outro vê (atualização autom
 
 **Estado da publicação em 10/08/2026:** GitHub, Vercel e os arquivos locais estão **100% em sincronia**. O conteúdo publicado é exatamente o descrito neste documento.
 
-**Arquivos do repositório:** `index.html`, `atendimento.html`, `favicon.png`, `transform.py`, `ESTADO-DO-PROJETO.md`, `MIGRACOES-APLICADAS.sql`.
+**Arquivos do repositório:** `index.html`, `atendimento.html`, `favicon.png`, `transform.py`, `ESTADO-DO-PROJETO.md`, `MIGRACOES-APLICADAS.sql` e `.gitignore`. **Nada além disso deve ser versionado** — a Vercel publica tudo que está no repositório. Em 26/10/2026 foi removido um atalho de teste (`scratch-antes`) que tinha entrado por engano num `git add -A`; por isso, ao commitar, adicione os arquivos pelo nome.
 
 **Storage do Supabase:** bucket **privado** `anexos` guarda os comprovantes e documentos. Os arquivos só abrem por link assinado (válido por 2 minutos), gerado depois do login.
 
