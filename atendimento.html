@@ -693,16 +693,19 @@ function anexosDoCliente(nn){return ANEXOS.filter(a=>a.cliente_norm===nn);}
 function podeExcluirAnexo(a){return isGestao||(!!MEU_EMAIL&&a.criado_por_email===MEU_EMAIL);}
 function tamanhoBonito(b){b=Number(b||0);if(b<1024)return b+' B';if(b<1048576)return Math.round(b/1024)+' KB';return (b/1048576).toFixed(1)+' MB';}
 
-function openAnex(tipo,id){
+/* cat: categoria que ja vem marcada. Sem informar, e "recibo" (o mais comum).
+   O botao "Anexar comprovante" da baixa passa 'comprovante', senao o
+   comprovante seria salvo como recibo sem a pessoa perceber. */
+function openAnex(tipo,id,cat){
   if(tipo==='lanc'){
     const r=findRec(id);if(!r)return;
-    anexCtx={tipo:'lanc',id:r.id,cliente_norm:r.nome_norm,nome:r.nome,processo:r.processo||''};
+    anexCtx={tipo:'lanc',id:r.id,cliente_norm:r.nome_norm,nome:r.nome,processo:r.processo||'',cat:cat||'recibo'};
     document.getElementById('anexTitle').textContent='Anexos — '+r.nome+' · '+(r.processo||'sem processo');
   }else{
     const nn=CARDNN[id]||id;
     const lista=(CARDMAP[id]||[]).map(findRec).filter(Boolean);
     const nome=(lista[0]&&lista[0].nome)||cliInfo(nn).nome||nn;
-    anexCtx={tipo:'cliente',id:null,cliente_norm:nn,nome:nome,processo:''};
+    anexCtx={tipo:'cliente',id:null,cliente_norm:nn,nome:nome,processo:'',cat:cat||'recibo'};
     document.getElementById('anexTitle').textContent='Anexos do cliente — '+nome;
   }
   renderAnexos();
@@ -716,10 +719,13 @@ function renderAnexos(){
     : anexosDoCliente(anexCtx.cliente_norm);
   let h='<div class="anx-bar">'
     +'<span class="clabel">Tipo do arquivo:</span>'
-    +'<select id="anexCat">'
-      +'<option value="comprovante">Comprovante de pagamento</option>'
-      +'<option value="recibo">Recibo assinado</option>'
-      +'<option value="documento" selected>Documento</option>'
+    /* Recibo assinado vem primeiro e ja marcado: e o anexo mais comum.
+       Documento, o mais generico, fica por ultimo (26/10/2026).
+       A escolha fica guardada em anexCtx.cat: depois de enviar um arquivo a
+       lista e redesenhada, e sem isso voltaria para Recibo a cada envio. */
+    +'<select id="anexCat" onchange="anexCtx.cat=this.value">'
+      +[['recibo','Recibo assinado'],['comprovante','Comprovante de pagamento'],['documento','Documento']]
+        .map(function(o){return '<option value="'+o[0]+'"'+((anexCtx.cat||'recibo')===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')
     +'</select>'
     +'<label class="btn primary" style="cursor:pointer;margin:0">Escolher arquivo…'
       +'<input type="file" id="anexFile" style="display:none" onchange="enviarAnexo(this)"></label>'
@@ -1391,7 +1397,7 @@ function expHTML(r){
         +' title="Já vem com o valor a pagar (o lançado, menos o saldo devedor). Altere só em caso de pagamento parcial."></div>'
       +'<div class="fld" style="flex:1"><label>Observação</label><textarea id="ob_'+rid(r)+'" placeholder="Anotação para a equipe…">'+esc(r.obs||'')+'</textarea></div>'
       +'<button class="savep" onclick="savePag('+jid(r)+')">Salvar baixa</button>'
-      +'<button class="btn" style="margin-left:4px" onclick="openAnex(\''+'lanc'+'\','+jid(r)+')">Anexar comprovante'
+      +'<button class="btn" style="margin-left:4px" onclick="openAnex(\''+'lanc'+'\','+jid(r)+',\'comprovante\')">Anexar comprovante'
         +(anexosDoLanc(r.id).length?' ('+anexosDoLanc(r.id).length+')':'')+'</button>'
       +auditHTML(r)
       +'</div>';
