@@ -11,6 +11,8 @@
 - **Validar antes de entregar:** extrair o último `<script>` e rodar `node --check`.
 - **Banco em produção com dados reais.** Toda migração deve ser **aditiva** (`add column if not exists`, `create or replace`). **Nunca** recriar tabela nem re-inserir dados.
 - **Testar mudanças de banco dentro de transação com `rollback`** antes de aplicar de verdade (ver §9).
+- **Merge autorizado de forma permanente** (Danilo, 26/10/2026: *"pode mergear e sempre fazer o merge"*). Fluxo de cada entrega: commit no branch de trabalho → abrir o PR → **o próprio assistente faz o merge** → avisar que está no ar (a Vercel publica em ~30s). Não é preciso perguntar antes. A autorização vale para o **merge**; ela **não** dispensa as outras regras desta seção — testes antes de entregar, migração só aditiva e testada com `rollback`.
+- **Ao commitar, adicionar os arquivos pelo nome** (`git add index.html atendimento.html …`), nunca `git add -A`: a Vercel publica tudo que está no repositório, e um atalho de teste já entrou por engano assim (ver §2).
 - Ao terminar um assunto, **oferecer o resumo atualizado deste documento**.
 
 ---
