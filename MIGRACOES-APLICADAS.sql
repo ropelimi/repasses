@@ -654,3 +654,41 @@ end $function$;
 --  where column_name = 'devedor_quitado'
 --  order by table_name;
 -- Esperado: repasses e repasses_atendimento.
+
+
+-- =====================================================================
+-- MIGRAÇÃO APLICADA EM 27/10/2026
+-- atendimento_ve_valores_individuais
+-- =====================================================================
+-- Testada antes numa transação desfeita, com 8 cenários simulando o
+-- Anderson (atendimento): coluna continua SOMENTE LEITURA; view continua com
+-- security_invoker=off; 292 repasses e 28 saldos a abater com valor; UPDATE de
+-- valor_num pela view recusado; edição de OBS continua funcionando; 320
+-- linhas iguais à tabela; e a guarda de regressão do ag_pagamento.
+--
+-- 29) repasses_atendimento passa a expor valor_num de TODOS os lançamentos:
+--
+--   create or replace view public.repasses_atendimento
+--   with (security_invoker = off) as
+--   select id, nome, nome_norm, cpf, processo, reu, grupo, advogado, tipo, conta,
+--          competencia, ano, mes, busca, cp, pago, data_pagamento, obs,
+--          pix_chave, pix_banco, pix_agencia, pix_conta,
+--          atualizado_por, atualizado_em, criado_em,
+--          ag_pagamento, natureza, tipo_devedor, previsao_pagamento,
+--          case when natureza in ('repasse','devedor') then valor_num
+--               else null::numeric end as valor_num,
+--          devedor_quitado
+--     from public.repasses;
+--
+--   ⚠️ O CASE é a TRAVA: coluna calculada não é gravável pela view. Não
+--   trocar por `valor_num` puro, senão o atendimento passa a poder alterar
+--   valores pela API (a função bloqueia_pagamento_nao_gestao não cobre
+--   valor_num).
+--   valor_pago continua fora da view.
+--
+-- Conferência rápida (só lê):
+-- select column_name, is_updatable from information_schema.columns
+--  where table_schema='public' and table_name='repasses_atendimento'
+--    and column_name='valor_num';
+-- Esperado: valor_num | NO
+
