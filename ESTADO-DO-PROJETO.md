@@ -76,12 +76,16 @@ A ordem dessa lista (`GORDER`) é a que aparece nos chips de filtro e no formul�
   → Por isso a lista de usuários do painel usa a função `listar_usuarios()`, e **não** um `select` direto em `profiles`.
 - Trigger `handle_new_user` (em `auth.users`) cria o profile automaticamente com perfil `atendimento` e **sem nome**.
 
-### Segurança de valores (atendimento não vê dinheiro)
+### Segurança de valores (atendimento vê valores individuais, não os totais gerais — 27/10/2026)
 - **RLS na `repasses`:** policy `repasses_gestao` — só perfil `gestao` acessa a tabela (que tem valores).
 - **View `repasses_atendimento`** (`security_invoker = off`) — é por ela que o atendimento lê e grava. Inclui `ag_pagamento`, `previsao_pagamento`, `natureza` e `tipo_devedor` (são status, não dinheiro).
   - **Nunca expõe `valor_pago`.**
-  - **`valor_num` só do saldo devedor** (30/08/2026, a pedido): a coluna sai como `case when natureza = 'devedor' then valor_num else null end`. O atendimento vê quanto o cliente deve — o que ajuda a identificar e conversar com ele — e o repasse continua invisível.
-  - Como essa coluna é **calculada**, o Postgres a torna **não atualizável**: o atendimento lê mas não consegue gravar valor nem por chamada direta. As demais colunas continuam graváveis normalmente.
+  - **`valor_num` de todos os lançamentos** (27/10/2026, a pedido): a coluna sai como `case when natureza in ('repasse','devedor') then valor_num else null::numeric end`. Como `natureza` é `NOT NULL` e só aceita esses dois valores, na prática devolve sempre o valor — e, se um dia surgir uma terceira natureza, ela nasce **escondida** (falha para o lado seguro).
+    *Antes:* de 30/08 a 27/10/2026 era `case when natureza = 'devedor' …` (só o saldo a abater aparecia); antes disso, nenhum valor.
+  - **O `CASE` é de propósito e não pode virar `valor_num` puro.** Por ser coluna **calculada**, o Postgres a torna **não atualizável**: o atendimento **lê** o valor mas **não consegue gravá-lo**, nem por chamada direta à API. É essa a trava — a função `bloqueia_pagamento_nao_gestao` **não** protege `valor_num`. Trocar por `valor_num` simples tornaria a coluna gravável pelo atendimento. Teste de 27/10/2026: `update repasses_atendimento set valor_num = 1` como atendimento → *"cannot update column valor_num of view repasses_atendimento"*.
+  - **O que o atendimento vê na tela:** coluna Valor na lista, o "a pagar" já descontado, valor lançado na ficha do processo, total do cliente no cartão e na ficha do cliente, e o cartão **Ag. pagamento com valor**.
+  - **O que o atendimento NÃO vê:** os cartões de total geral **"A repassar (líquido)"** e **"Saldo a abater do cliente" em valor** (este aparece só como quantidade), o Financeiro, o `valor_pago` e o campo para alterar valor.
+  - ⚠️ **Os totais gerais estão escondidos, não trancados.** Quem vê o valor de cada processo pode somá-los. Esconder os cartões evita que o número apareça pronto na tela; não impede a conta. O **CSV do atendimento continua sem a coluna Valor** (só o valor do saldo a abater), justamente para não entregar a planilha pronta para somar. Se um dia o total precisar ser realmente sigiloso, o caminho é voltar a não entregar `valor_num` de repasse pela view.
 - **Função `recibo_dados(bigint[])`** (security definer) — entrega o valor só dos lançamentos escolhidos, para o atendimento gerar recibo. **Está concedida (`granted`).**
   Para bloquear: `revoke execute on function public.recibo_dados(bigint[]) from authenticated;`
 
@@ -232,7 +236,9 @@ Botão de **clipe** com o número de arquivos: na linha do lançamento, na visã
 - **O atendimento anexa, vê e baixa** — inclusive comprovantes de pagamento, mesmo sem ter acesso ao Financeiro.
 - **Excluir:** a gestão apaga qualquer um; as demais pessoas só o que elas mesmas enviaram.
 
-### 4.5 Saldo devedor
+### 4.5 Saldo a abater do cliente (antigo "Saldo devedor")
+> **Nome mudado em 27/10/2026, a pedido**: em toda a tela, "Saldo devedor" virou **"Saldo a abater do cliente"** — cartões, etiquetas, formulário ("Tipo do saldo a abater"), fichas, recibo, CSV e Histórico. Nas contas curtas aparece só **"a abater"** (ex.: *R$ 3.750,00 − R$ 450,00 a abater*). **Por dentro nada mudou:** no banco continua `natureza = 'devedor'`, `tipo_devedor`, `devedor_quitado`, e as funções do código continuam com `devedor` no nome (`ehDevedor`, `devedorDoCliente`…). O texto abaixo usa os dois nomes.
+
 No **Novo lançamento**, o primeiro campo é **Tipo de lançamento**: *Repasse ao cliente* ou *Saldo devedor*. Escolhendo Saldo devedor aparece o **tipo**: Custas, Má-Fé, Réu, Indenização, Escritório, Estado.
 > Em 01/09/2026 saíram do formulário, a pedido, dois avisos que não acrescentavam nada: *"Saldo devedor abate do valor consolidado do cliente e não entra no Financeiro"* e, no atendimento, *"Saldo em aberto. Somente a gestão altera."*. A caixinha **Saldo quitado** passou a existir só para a gestão — no atendimento o bloco inteiro deixou de ser gerado, e a situação continua visível na lista, pela pastilha EM ABERTO / QUITADO.
 - Os dois aparecem **separados** na lista, com etiqueta marrom no saldo devedor.
@@ -475,6 +481,7 @@ rollback;
 - **Bucket privado exige URL assinada.** `POST /storage/v1/object/sign/anexos/<caminho>` com `{"expiresIn":120}` devolve `{"signedURL":"/object/sign/..."}` — a URL final é `_URL + '/storage/v1' + signedURL`, mais `&download=<nome>` para baixar com o nome certo. Link direto não abre, e é isso que se quer: documento de cliente não fica público.
 - **Sessão vencida fazia o sistema insistir para sempre.** O `loadData` roda de 30 em 30 segundos; com o token vencido eram 73 recusas seguidas no log de 30/08/2026. Agora `sessaoCaiu()` reconhece o 401 e `sessaoExpirou()` para o relógio e traz a tela de login de volta, em vez de piscar erro vermelho a cada meio minuto.
 - **Temp table em teste com `set local role authenticated`** precisa de `grant all on _res to authenticated`, senão o teste falha com "permission denied for table _res" e parece que a policy é que quebrou.
+- **Teste de banco SEMPRE termina com `rollback;` explícito — e depois confira.** Em 27/10/2026 um teste da view foi enviado com `begin;` e sem `rollback;` no fim. O conector desfez tudo sozinho ao fechar a conexão (verificado logo depois: view ainda na versão antiga, nenhum dado de teste sobrando, nenhuma transação aberta), mas isso é comportamento do conector, não garantia. Depois de qualquer teste com `begin`, rode uma consulta de conferência mostrando que **nada** mudou.
 - **Nos testes de navegador, `sb` não pode ser trocado depois que a página carrega** — é uma `const` criada a partir de `window.supabase` (e, sem internet para o CDN, fica `null`, então todo envio para no começo sem erro nenhum). Para simular o banco, entregue um `window.supabase` falso **antes** da carga, com `page.addInitScript(...)`. Funções declaradas (`loadAnexos`, `persist`…) podem ser trocadas depois normalmente.
 - **No teste como atendimento, leia pela view, não pela tabela.** Um `select ... from public.repasses` rodando com `set local role authenticated` e um usuário de atendimento devolve **zero linhas** (a policy `repasses_gestao` barra), e a variável fica nula — o teste acusa falha onde o sistema está certo. Use `public.repasses_atendimento`.
 - **Caixinha de marcar dentro do modal esticava para 100%.** A regra `.modal-b .fld input{width:100%}` valia também para `input[type=checkbox]`, e o quadradinho ficava largo, jogando o rótulo para o meio da linha (o campo **C.P.** já sofria disso). Corrigido em 31/08/2026 com `.modal-b .fld input[type=checkbox]{width:18px;flex:none}`.
