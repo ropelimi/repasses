@@ -692,3 +692,44 @@ end $function$;
 --    and column_name='valor_num';
 -- Esperado: valor_num | NO
 
+
+-- =====================================================================
+-- MIGRAÇÃO APLICADA EM 29/10/2026
+-- atendimento_nao_apaga_nem_altera_historico
+-- =====================================================================
+-- Brechas encontradas em 27/10/2026 ao conferir as permissões: as duas views
+-- do atendimento (security_invoker=off, passam por cima do RLS) davam ao
+-- atendimento permissão total. Testada antes numa transação desfeita, com
+-- 13 cenários e os registros escolhidos ANTES de trocar de papel:
+--   ANTES   atendimento apaga lançamento ............. apagou (brecha)
+--   ANTES   atendimento apaga histórico .............. apagou (brecha)
+--   ANTES   atendimento reescreve histórico .......... alterou (brecha)
+--   SÓ A TRAVA: atendimento apaga lançamento ......... recusado
+--   TRAVA+PERMISSÃO: as três ações acima ............. recusadas
+--   continua: atendimento lê histórico, cria lançamento, edita OBS e marca
+--             AG. PAGAMENTO; gestão apaga lançamento e lê histórico.
+--
+-- 30) Permissões:
+--   revoke delete, truncate on public.repasses_atendimento from authenticated, anon;
+--   revoke insert, update, delete, truncate on public.repasses_log_atendimento from authenticated, anon;
+--
+-- 31) Segunda trava, independente das permissões:
+--   create or replace function public.bloqueia_exclusao_nao_gestao()
+--   returns trigger language plpgsql security definer set search_path = public as $$
+--   begin
+--     if auth.uid() is null then return old; end if;          -- migrações / service_role
+--     if public.meu_perfil() = 'gestao' then return old; end if;
+--     raise exception 'Somente a gestao pode excluir lancamentos.' using errcode = '42501';
+--   end $$;
+--   create trigger trg_bloqueia_exclusao before delete on public.repasses
+--     for each row execute function public.bloqueia_exclusao_nao_gestao();
+--
+-- Conferência rápida (só lê):
+-- select table_name, string_agg(privilege_type, ',' order by privilege_type)
+--   from information_schema.role_table_grants
+--  where table_schema='public' and table_name like 'repasses_%atendimento'
+--    and grantee='authenticated' group by 1;
+-- Esperado:
+--   repasses_atendimento     | INSERT,REFERENCES,SELECT,TRIGGER,UPDATE
+--   repasses_log_atendimento | REFERENCES,SELECT,TRIGGER
+
