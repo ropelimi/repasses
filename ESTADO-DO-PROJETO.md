@@ -89,6 +89,23 @@ A ordem dessa lista (`GORDER`) é a que aparece nos chips de filtro e no formul�
 - **Função `recibo_dados(bigint[])`** (security definer) — entrega o valor só dos lançamentos escolhidos, para o atendimento gerar recibo. **Está concedida (`granted`).**
   Para bloquear: `revoke execute on function public.recibo_dados(bigint[]) from authenticated;`
 
+### O que o atendimento pode fazer pelas views (corrigido em 29/10/2026)
+As duas views do atendimento (`repasses_atendimento` e `repasses_log_atendimento`) são `security_invoker = off`: **passam por cima do RLS**. Quem manda nelas são só as **permissões** (`grant`) e os **gatilhos** da tabela. Até 29/10/2026 o atendimento tinha **todas** as permissões nas duas — e um teste provou três brechas, todas fechadas:
+
+| view | o atendimento podia | agora pode |
+|---|---|---|
+| `repasses_atendimento` | ler, criar, editar **e apagar** lançamentos | ler, criar, editar |
+| `repasses_log_atendimento` | ler, **apagar e reescrever** o histórico | **só ler** |
+
+- **Duas travas independentes para excluir lançamento:**
+  1. **Permissão:** `revoke delete, truncate on repasses_atendimento` (e `insert, update, delete, truncate` na view do histórico), de `authenticated` e `anon`.
+  2. **Gatilho `trg_bloqueia_exclusao`** (BEFORE DELETE em `repasses`) → função `bloqueia_exclusao_nao_gestao()`: só `gestao` exclui; `auth.uid()` nulo (migração/service_role) passa. Funciona mesmo se a permissão for devolvida por engano — foi testado **sozinho**, antes do `revoke`, e recusou.
+- A gestão exclui pela tabela `repasses` (a tela usa `TABLE = isGestao ? "repasses" : "repasses_atendimento"`), então nada mudou para ela.
+- A tela do atendimento **nunca** usou essas permissões: não tem botão de excluir e só faz `select` no histórico. As brechas só eram alcançáveis por chamada direta à API.
+- ⚠️ **Ao recriar qualquer uma das duas views com `drop view` + `create view`, as permissões voltam ao padrão do Supabase (tudo liberado).** `create or replace view` preserva. Depois de mexer nelas, conferir com:
+  `select table_name, string_agg(privilege_type, ',') from information_schema.role_table_grants where table_schema='public' and table_name like 'repasses_%atendimento' and grantee='authenticated' group by 1;`
+  Esperado: `repasses_atendimento` → INSERT, REFERENCES, SELECT, TRIGGER, UPDATE · `repasses_log_atendimento` → REFERENCES, SELECT, TRIGGER.
+
 ### Segurança de pagamento (3ª versão, 30/08/2026)
 - **Trigger `trg_bloqueia_pagamento`** (BEFORE INSERT OR UPDATE em `repasses`) → função `bloqueia_pagamento_nao_gestao()`.
 - Impede que **qualquer usuário logado que não seja `gestao`** altere `pago`, `data_pagamento`, `valor_pago`, **`previsao_pagamento`** e **`devedor_quitado`** — pela tela, pela view ou por chamada direta à API.
@@ -433,6 +450,10 @@ end $$;
 select * from _res;
 rollback;
 ```
+
+**Escolha os registros ANTES de trocar de papel.** Dentro do teste, depois de `set local role authenticated` como atendimento, uma subconsulta na tabela `repasses` (ex.: `where id = (select max(id) from public.repasses)`) devolve **nulo** — o RLS esconde a tabela — e o comando "passa" com **0 linhas**, parecendo que funcionou quando não testou nada. Isso enganou um teste de 29/10/2026. Pegue os ids como dono do banco, antes, e passe-os prontos (`format('… where id=%s', v_id)`). Desconfie de todo resultado "0 linha(s)".
+
+**O conector do Supabase pede aprovação do Danilo** para SQL com `delete`, `revoke`, `drop` etc. — mesmo dentro de `begin … rollback`. A aprovação aparece na tela da conversa e **expira em cerca de 1 minuto**; se expirar, o comando **não roda** (conferido duas vezes em 27–29/10/2026). Avise antes de enviar, para ele ficar de olho.
 
 **UUIDs úteis para teste:**
 - Danilo (gestao): `f8186172-3101-42ab-a681-f0e897282efa`
